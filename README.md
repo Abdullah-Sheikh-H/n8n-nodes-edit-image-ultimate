@@ -162,15 +162,83 @@ When using the **Quote** layout, you can add a subtle text watermark (e.g. `@you
 
 ---
 
+## ✍️ Text Operation — Full Reference
+
+The **Text** operation has by far the deepest feature set in this node. All fields below appear when **Operation** is set to **Text**.
+
+### Positioning — four independent controls
+
+Positioning is split into four separate concerns, matching how design tools like Figma/Photoshop handle a "reference point":
+
+1. **Gravity** — a fixed anchor point on the *full image* (North West, North, North East, West, Center, East, South West, South, South East). E.g. Center = the exact middle of the image, regardless of text content.
+2. **Position X / Position Y** — pixel offsets from that Gravity point. Positive X moves right, positive Y moves down.
+3. **Box Anchor** — which point of the *text box itself* lands on the final Gravity+Position point (same 9-point options). E.g. Box Anchor = North means the box's top edge sits at that point, so the box extends downward from it — this is what lets you pin text flush to an edge without it being cut off.
+4. **Text Align** — Left / Center / Right / **Justify** — controls how each line sits *within* the box (only visually matters for multi-line text where lines differ in length). This is independent of Box Anchor.
+
+**Example:** Gravity = North, Position Y = 0, Box Anchor = North → the box's top edge sits exactly at the image's top edge, extending fully downward, nothing cut off. If Box Anchor were Center instead, the box's center would land on that same point, pushing half the box above the visible canvas.
+
+### Justify — real per-word positioning
+
+Justify is implemented via genuine per-word pixel positioning (each word gets its own explicit X coordinate, with gap widths calculated to make the line span the full box width) rather than relying on SVG's `textLength`/`lengthAdjust` attribute, which isn't reliably supported across SVG renderers. This guarantees consistent, visible justification.
+
+- The **last line of every paragraph** stays at its natural width by default — stretching a short final line creates large, ugly gaps, and no real justify implementation (CSS, Word, InDesign) does it either.
+- **Stretch Last Line** (toggle, shown when Text Align = Justify) forces every line, including short trailing ones, to stretch to the full width — a deliberate poster/graphic-design look rather than standard typography.
+- Single-word lines are never stretched (there's nothing to distribute gaps between).
+
+### Sizing — Width & Height, independently Auto or Custom
+
+**Box Width Mode** and **Box Height Mode** are fully independent — mix and match, e.g. Width = Custom (60%) with Height = Auto:
+- **Auto** — estimated from the actual text content and font size
+- **Custom** — reveals a unit selector (**Pixels** / **Percent of Image Width or Height**) plus a size field
+
+### Line wrapping — Max and Min Line Length
+
+Both **Max Line Length Mode** and **Min Line Length Mode** support **Characters** / **Percent of Image Width** / **Pixels** (Min also has **Auto**, disabling the minimum entirely):
+
+- **Percent/Pixels modes measure real estimated pixel width directly**, character-by-character, using a width table (narrow letters like `i`/`l`/`t`/`j` count less than wide letters like `m`/`w`/`M`/`W`), scaled up for bolder font weights. This is meaningfully more accurate than a flat "average character width," which under- or over-estimates depending on the specific letters in your text.
+- **Characters mode** is a literal character count, unaffected by the above.
+- **Min Line Length** avoids short "orphan" trailing lines (e.g. wrapping leaving a lone word like "zeta" by itself) by merging short lines into the line before them — but **Max Line Length is always a hard ceiling**: a merge only happens if it can be done *without* exceeding Max. If satisfying Min would require exceeding Max, the line is simply left shorter than the minimum — overflowing the canvas is treated as worse than an uneven line.
+- **Text Overflow** (Visible / Wrap / Clip) handles the separate case of a single unbreakable word with no spaces (word-wrap can never break those on its own):
+  - **Visible** (default) — long unbroken words spill past the wrap width freely
+  - **Wrap** — force-breaks only genuinely unbreakable single-word lines into hard character chunks (`word-break: break-all`); legitimate multi-word lines are never shattered mid-word
+  - **Clip** — hides anything extending past the text box's bounds entirely (`overflow: hidden`)
+
+### Text styling
+
+| Field | Details |
+|---|---|
+| **Text Opacity** | 0–100, maps to SVG `fill-opacity` |
+| **Font Weight** | Full 100–900 range (all 9 CSS weights); click the **fx** expression icon to pass any custom number |
+| **Font Style** | Normal / Italic / Oblique |
+| **Text Decoration** | None / Underline / Overline / Line Through — real SVG `text-decoration`, follows the text's actual rendered width |
+| **Enable Text Stroke** | → Stroke Color, Stroke Width — real vector outline via SVG `stroke`, rendered behind the fill |
+| **Enable Text Shadow** | → Shadow Color, Shadow Opacity, Shadow Blur, Shadow Offset X/Y — genuine Gaussian-blurred `feDropShadow`, not a flat offset copy |
+
+### Text Background — Solid or genuine frosted Glass
+
+- **Enable Text Background** → **Background Style**: Solid Color or **Glass (Frosted)**
+  - **Solid** — flat fill color
+  - **Glass** — the image region behind the box is actually cropped, blurred, and composited back in (clipped to the box's rounded shape), with a tinted overlay on top — a real translucent glass-card effect, not a fake semi-transparent color
+- **Frost** (0–100, shown when Background Style = Glass) — 0 = fully invisible (no blur, no tint), 100 = heaviest blur + fully opaque tint. Controls both the tint opacity and backdrop blur intensity together.
+- **Background Padding** — CSS-style shorthand, e.g. `"12"` (all sides), `"10 20"` (top/bottom, then left/right — real CSS order, not x/y), `"10 20 30"`, or `"10 20 30 40"` (top, right, bottom, left)
+- **Enable Background Border** → Border Color, Border Width
+- **Border Radius Unit**: Pixels or **Percent** (relative to the box's own size — 0% = sharp corners, 100% = fully pill-shaped) → **Border Radius**
+
+### Case-insensitivity
+
+Every dropdown/options field on this node is case-insensitive when set via expression — `"Center"`, `"CENTER"`, and `"center"` all behave identically (Gravity, Box Anchor, Font Style, Text Decoration, Background Style, and every other options field), with whitespace automatically trimmed too.
+
+---
+
 ## 📤 Output Options
 
 All operations support the following output settings:
 
 | Option | Description |
 |---|---|
-| **Format** | `png` / `jpeg` / `webp` / `avif` / `tiff` / `gif` |
-| **Quality** | 1–100 for jpeg / webp / avif |
-| **PNG Compression** | 0 (fastest) to 9 (smallest) |
+| **Format** | Defaults to **"Same as Input"** — detects and keeps the original image's format (e.g. JPEG stays JPEG) instead of silently converting everything to lossless PNG, which can inflate a detailed photo 10–20x in size. Explicitly set `png` / `jpeg` / `webp` / `avif` / `tiff` / `gif` if you need to override. |
+| **Quality** | 1–100 for jpeg / webp / avif (only shown when Format is explicitly set to one of these) |
+| **PNG Compression** | 0 (fastest) to 9 (smallest), only relevant if Format is explicitly `png` |
 | **Output Property Name** | Save to a different binary property |
 | **File Name** | Override the output filename |
 
