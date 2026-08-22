@@ -1,0 +1,41 @@
+# Source files — never needed at runtime
+nodes/
+credentials/
+*.ts
+!*.d.ts
+tsconfig.json
+tsconfig.tsbuildinfo
+gulpfile.js
+.eslintrc.js
+.eslintrc.prepublish.js
+.prettierrc.js
+.editorconfig
+.vscode/
+
+# Dev artifacts
+node_modules/
+.tmp/
+tmp/
+*.tsbuildinfo
+dist/*.tsbuildinfo
+dist/tsconfig.tsbuildinfo
+dist/package.json
+
+# Git
+.git/
+.gitignore
+
+# Logs & OS
+*.log
+.DS_Store
+Thumbs.db
+
+# CI / scripts
+.github/
+scripts/
+publish.ps1
+
+# Markdown extras
+CODE_OF_CONDUCT.md
+README_TEMPLATE.md
+print-sample.png

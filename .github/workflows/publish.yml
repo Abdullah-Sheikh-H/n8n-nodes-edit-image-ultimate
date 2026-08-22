@@ -1,0 +1,162 @@
+name: Publish to npm
+
+on:
+  # Auto-publish when you push a version tag (v0.2.1, v1.0.0, etc.)
+  push:
+    tags:
+      - 'v*'
+
+  # Allow manual trigger from GitHub UI with version bump choice
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      dry_run:
+        description: 'Dry run (build & pack only, do not publish)'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  publish:
+    name: Build & Publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      # ── 1. Checkout ───────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # Use a token that can push the version bump commit + tag back
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 2. Setup Node.js ──────────────────────────────────
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
+
+      # ── 3. Configure git identity for version commits ─────
+      - name: Configure git identity
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      # ── 4. Install dependencies ───────────────────────────
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      # ── 5. Build ──────────────────────────────────────────
+      - name: Build TypeScript
+        run: npm run build
+
+      # ── 6. Verify dist ────────────────────────────────────
+      - name: Verify build output
+        run: |
+          test -f dist/nodes/EditImagePlus/EditImagePlus.node.js || \
+            (echo "❌ Missing compiled file" && exit 1)
+          echo "✅ Build output verified"
+
+      # ── 7. Bump version (manual dispatch only) ────────────
+      - name: Bump version
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          npm version ${{ github.event.inputs.bump }} --no-git-tag-version
+          NEW_VERSION=$(node -p "require('./package.json').version")
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+          echo "Bumped to v$NEW_VERSION"
+
+      # ── 8. Extract version from tag (tag push) ────────────
+      - name: Extract version from tag
+        if: github.event_name == 'push'
+        run: |
+          TAG=${GITHUB_REF#refs/tags/v}
+          echo "NEW_VERSION=$TAG" >> $GITHUB_ENV
+          npm version $TAG --no-git-tag-version --allow-same-version
+          echo "Publishing v$TAG"
+
+      # ── 9. Preview package contents ──────────────────────
+      - name: Preview package contents
+        run: npm pack --dry-run
+
+      # ── 10a. Dry run — create tarball only ───────────────
+      - name: Pack tarball (dry run)
+        if: >
+          github.event_name == 'workflow_dispatch' &&
+          github.event.inputs.dry_run == 'true'
+        run: |
+          npm pack
+          echo "✅ Dry run complete. Tarball created but NOT published."
+
+      - name: Upload tarball artifact (dry run)
+        if: >
+          github.event_name == 'workflow_dispatch' &&
+          github.event.inputs.dry_run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-package-tarball
+          path: '*.tgz'
+          retention-days: 7
+
+      # ── 10b. Publish to npm ──────────────────────────────
+      - name: Publish to npm
+        if: >
+          github.event_name == 'push' ||
+          (github.event_name == 'workflow_dispatch' &&
+           github.event.inputs.dry_run == 'false')
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # ── 11. Commit version bump + tag (manual dispatch) ──
+      - name: Commit and tag version bump
+        if: >
+          github.event_name == 'workflow_dispatch' &&
+          github.event.inputs.dry_run == 'false'
+        run: |
+          git add package.json package-lock.json
+          git commit -m "chore: release v${{ env.NEW_VERSION }}" || echo "No changes to commit"
+          git tag "v${{ env.NEW_VERSION }}" || echo "Tag already exists"
+          git push origin HEAD:master --tags
+
+      # ── 12. Create GitHub Release ─────────────────────────
+      - name: Create GitHub Release
+        if: >
+          github.event_name == 'push' ||
+          (github.event_name == 'workflow_dispatch' &&
+           github.event.inputs.dry_run == 'false')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.NEW_VERSION }}
+          name: v${{ env.NEW_VERSION }}
+          body: |
+            ## n8n-nodes-edit-image-ultimate v${{ env.NEW_VERSION }}
+
+            ### Install in n8n
+            Go to **Settings → Community Nodes → Install** and enter:
+            ```
+            n8n-nodes-edit-image-ultimate
+            ```
+
+            ### npm
+            ```bash
+            npm install n8n-nodes-edit-image-ultimate
+            ```
+
+            See [CHANGELOG](https://github.com/Abdullah-Sheikh-H/n8n-nodes-edit-image-ultimate/blob/master/CHANGELOG.md) for details.
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

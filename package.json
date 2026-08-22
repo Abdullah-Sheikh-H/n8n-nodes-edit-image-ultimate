@@ -1,0 +1,89 @@
+{
+  "name": "n8n-nodes-edit-image-ultimate",
+  "version": "1.0.0",
+  "description": "Advanced image editing node for n8n — powered by Sharp (libvips). Rich text styling (opacity, weight, stroke, shadow, decoration, background with solid/frosted-glass fill, justify), gravity/box-anchor positioning, plus templates, watermarks, and 20+ image operations. No GraphicsMagick required.",
+  "keywords": [
+    "n8n-community-node-package",
+    "n8n",
+    "node",
+    "no-code",
+    "n8n-nodes-edit-image-ultimate",
+    "justify",
+    "gravity",
+    "glassmorphism",
+    "image",
+    "sharp",
+    "template",
+    "image-processing",
+    "resize",
+    "crop",
+    "watermark",
+    "social-media",
+    "text-effects",
+    "drop-shadow",
+    "glow",
+    "meme",
+    "quote",
+    "instagram",
+    "youtube-thumbnail",
+    "font",
+    "typography",
+    "graphic-design",
+    "automation"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/Abdullah-Sheikh-H/n8n-nodes-edit-image-ultimate#readme",
+  "author": {
+    "name": "Abdullah-Sheikh-H",
+    "url": "https://github.com/Abdullah-Sheikh-H"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Abdullah-Sheikh-H/n8n-nodes-edit-image-ultimate.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Abdullah-Sheikh-H/n8n-nodes-edit-image-ultimate/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc && gulp build:icons",
+    "dev": "tsc --watch",
+    "format": "prettier nodes --write",
+    "lint": "eslint nodes package.json",
+    "lintfix": "eslint nodes package.json --fix",
+    "prepublishOnly": "npm run build",
+    "release:patch": "npm version patch && npm run build && npm publish",
+    "release:minor": "npm version minor && npm run build && npm publish",
+    "release:major": "npm version major && npm run build && npm publish"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE.md"
+  ],
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "nodes": [
+      "dist/nodes/EditImagePlus/EditImagePlus.node.js"
+    ]
+  },
+  "peerDependencies": {
+    "n8n-workflow": ">=1.0.0"
+  },
+  "dependencies": {
+    "sharp": "^0.33.4"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.6",
+    "@types/sharp": "^0.31.1",
+    "@typescript-eslint/parser": "~5.45",
+    "eslint-plugin-n8n-nodes-base": "^1.11.0",
+    "gulp": "^5.0.1",
+    "n8n-workflow": "^2.16.0",
+    "prettier": "^2.7.1",
+    "typescript": "^7.0.2"
+  }
+}

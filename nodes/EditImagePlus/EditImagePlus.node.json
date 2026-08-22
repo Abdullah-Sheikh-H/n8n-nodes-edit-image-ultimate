@@ -1,0 +1,17 @@
+{
+	"node": "n8n-nodes-base.editImagePlus",
+	"nodeVersion": "2.0",
+	"codexVersion": "1.0",
+	"details": "The Edit Image+ node provides advanced image editing and creation powered by the Sharp library (libvips). Use this node when you want to:\n\n- Blur, sharpen, normalize or apply gamma correction\n- Add borders, rotate, flip, flop or shear an image\n- Resize with smart fit modes (cover, contain, fill, inside, outside)\n- Crop a specific region\n- Draw shapes (rectangle, circle, line) with fill and stroke\n- Render styled text with word-wrap, shadow and alignment\n- Composite one image on top of another with 20+ blend modes\n- Create blank canvases\n- Generate branded images from social media templates (Instagram, YouTube, Twitter, LinkedIn, Pinterest, etc.)\n- Apply colour effects: grayscale, sepia tone, tint\n- Add watermarks with opacity control and gravity positioning\n- Make background colours transparent (PNG output)\n- Get image metadata (size, format, DPI, channels)\n- Chain multiple operations in a single Multi Step node",
+	"categories": ["Marketing & Content", "Core Nodes"],
+	"resources": {
+		"primaryDocumentation": [
+			{
+				"url": "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.editimage/"
+			}
+		]
+	},
+	"subcategories": {
+		"Core Nodes": ["Files"]
+	}
+}
