@@ -38,101 +38,27 @@ This node renders text through real SVG — genuine font weights, italics, Gauss
 
 ---
 
-## New & Updated Operations
+## Overview
 
-n8n's built-in **Edit Image** node has 13 actions. This node has 23: 10 operations that don't exist in the built-in node at all, plus the original 13 — of which 3 (Text, Composite, Multi Step) are substantially deeper here, and the remaining 10 (Blur, Border, Create, Crop, Draw, Get Information, Resize, Rotate, Shear, Transparent) are largely equivalent.
+n8n's built-in **Edit Image** node has 13 actions. This node has 23 — 10 operations that don't exist in the built-in node at all (Flip, Flop, Apply Gamma, Convert to Grayscale, Normalize, Apply Sepia Tone, Sharpen, Create from Template, Tint, Add Watermark), plus the original 13, of which Text, Composite, and Multi Step are substantially deeper here.
 
-This section documents the 13 that are new or meaningfully changed. The other 10 unchanged operations are covered in [§6](#6-image-editing-operations) alongside everything else.
+**Features**
 
-**Contents**
-
-| New operations | Updated operations |
+| Operation | Summary |
 |---|---|
-| [Flip](#new-flip) | [Text](#updated-text) |
-| [Flop](#new-flop) | [Composite](#updated-composite) |
-| [Apply Gamma](#new-apply-gamma) | [Multi Step](#updated-multi-step) |
-| [Convert to Grayscale](#new-convert-to-grayscale) | |
-| [Normalize](#new-normalize) | |
-| [Apply Sepia Tone](#new-apply-sepia-tone) | |
-| [Sharpen](#new-sharpen) | |
-| [Create from Template](#5-template-operation) | |
-| [Tint](#new-tint) | |
-| [Add Watermark](#new-add-watermark) | |
-
-Every operation below, like every other operation in the node, requires a **Property Name** — the binary property on the input item holding the image data.
-
-### New: Flip
-
-Mirrors the image vertically — top becomes bottom. No additional fields.
-
-### New: Flop
-
-Mirrors the image horizontally — left becomes right. No additional fields.
-
-### New: Apply Gamma
-
-Gamma-corrects the image's brightness curve.
-
-| Field | Details |
-|---|---|
-| **Gamma Value** | 1.0 to 3.0, default 2.2. Lower values darken the image, higher values brighten it — this adjusts the tonal curve rather than a flat brightness shift, so midtones are affected more than the extremes. |
-
-### New: Convert to Grayscale
-
-Converts the image to black and white. No additional fields.
-
-### New: Normalize
-
-Stretches contrast to use the full available dynamic range — a flat, low-contrast image gets its darkest pixel pushed toward black and its brightest pixel pushed toward white, with everything else scaled proportionally in between. No additional fields.
-
-### New: Apply Sepia Tone
-
-Applies a warm, vintage sepia tone across the image. No additional fields.
-
-### New: Sharpen
-
-Applies an unsharp mask — the standard sharpening technique used by most image editors.
-
-| Field | Details |
-|---|---|
-| **Sharpen Sigma** | 0.5–5, default 1. The radius of the sharpening effect — higher values sharpen a wider band around each edge. |
-| **Sharpen Flat** | 0–10000, default 1. Threshold for "flat" (low-detail) areas — lower values cause more of the image to be sharpened, including subtle textures. |
-| **Sharpen Jagged** | 0–10000, default 2. Threshold for "jagged" (high-detail) edges — higher values sharpen strong edges more aggressively. |
-
-### New: Create from Template
-
-Generates a complete social-graphic (Instagram, YouTube, LinkedIn, and 11 more presets) from scratch — no source image needed. This is the deepest of the new operations, so it has its own full walkthrough in [§5. Template Operation](#5-template-operation).
-
-### New: Tint
-
-Applies a colour hue overlay across the image.
-
-| Field | Details |
-|---|---|
-| **Tint Color** | Default `#ff6b35`. The colour used to tint the image — this shifts the image's hue toward the chosen colour rather than simply overlaying it at reduced opacity. |
-
-### New: Add Watermark
-
-Overlays a second image (e.g. a logo) onto the source image, with opacity and positioning control.
-
-| Field | Details |
-|---|---|
-| **Watermark Image Property** | Binary property name containing the watermark image, default `watermark`. |
-| **Gravity (Position)** | 9-point placement: Center, Top Left/Center/Right, Middle Left/Right, Bottom Left/Center/Right. Default Bottom Right. |
-| **Opacity (%)** | 0 (invisible) to 100 (fully opaque), default 50. |
-| **Max Size (% of Canvas)** | 1–100, default 20. The watermark is scaled so its longest side is this percentage of the canvas — keeps a logo proportionally sized regardless of the source image's dimensions. |
-
-### Updated: Text
-
-Existed in the built-in node as basic bitmap text with no styling. Here it's rebuilt on real SVG rendering, with font weight/style, dynamic font selection, line wrapping, decoration (underline/overline/line-through with shadow), text shadow, and a solid-or-frosted-glass background. This is the single largest feature area in the node, so it has its own full walkthrough in [§4. Text Operation](#4-text-operation).
-
-### Updated: Composite
-
-Existed in the built-in node with a handful of blend modes. Here it supports 24 (Multiply, Screen, Overlay, Darken, Lighten, Difference, Exclusion, and more), matching the standard compositing operators found in design tools like Photoshop, rather than a single flat overlay. Field reference in [§6](#6-image-editing-operations).
-
-### Updated: Multi Step
-
-Existed in the built-in node, but its usefulness is capped by whichever operations it can chain. Since 10 of the operations above only exist in this node, Multi Step here can build pipelines the built-in version structurally cannot — for example Flip → Tint → Sharpen → Add Text in a single node run. Full details in [§7. Multi-Step Mode](#7-multi-step-mode).
+| Text | Styled text rendered through real SVG — font weight/style, dynamic font selection, line wrapping, decoration with shadow, text shadow, and a solid-or-frosted-glass background |
+| Template | Generates a complete social-graphic (Instagram, YouTube, LinkedIn, and 11 more presets) from scratch, no source image needed |
+| Composite | Overlays a second image using any of 24 blend modes (Multiply, Screen, Overlay, Difference, Exclusion, and more) |
+| Multi Step | Chains any combination of operations in a single node run, including the operations below that don't exist in the built-in node |
+| Flip | Mirrors the image vertically |
+| Flop | Mirrors the image horizontally |
+| Apply Gamma | Gamma-corrects the image's brightness curve (1.0–3.0) |
+| Convert to Grayscale | Converts the image to black and white |
+| Normalize | Stretches contrast to the full available dynamic range |
+| Apply Sepia Tone | Applies a warm, vintage sepia tone |
+| Sharpen | Unsharp mask with sigma / flat / jagged controls |
+| Tint | Applies a colour hue overlay |
+| Add Watermark | Overlays a logo/image with opacity control and 9-point gravity positioning |
 
 ---
 
@@ -158,6 +84,26 @@ Existed in the built-in node, but its usefulness is capped by whichever operatio
    - 5.5 [Text Effects](#55-text-effects)
    - 5.6 [Quote Watermark](#56-quote-watermark)
 6. [Image Editing Operations](#6-image-editing-operations)
+   - 6.1 [Blur](#61-blur)
+   - 6.2 [Border](#62-border)
+   - 6.3 [Composite](#63-composite)
+   - 6.4 [Create](#64-create)
+   - 6.5 [Crop](#65-crop)
+   - 6.6 [Draw](#66-draw)
+   - 6.7 [Flip](#67-flip)
+   - 6.8 [Flop](#68-flop)
+   - 6.9 [Apply Gamma](#69-apply-gamma)
+   - 6.10 [Convert to Grayscale](#610-convert-to-grayscale)
+   - 6.11 [Normalize](#611-normalize)
+   - 6.12 [Resize](#612-resize)
+   - 6.13 [Rotate](#613-rotate)
+   - 6.14 [Apply Sepia Tone](#614-apply-sepia-tone)
+   - 6.15 [Sharpen](#615-sharpen)
+   - 6.16 [Shear](#616-shear)
+   - 6.17 [Tint](#617-tint)
+   - 6.18 [Transparent](#618-transparent)
+   - 6.19 [Add Watermark](#619-add-watermark)
+   - 6.20 [Get Information](#620-get-information)
 7. [Multi-Step Mode](#7-multi-step-mode)
 8. [Output Options](#8-output-options)
 9. [Quick Start Examples](#9-quick-start-examples)
@@ -310,7 +256,7 @@ Positioning is split into four independent controls, matching how design tools l
 
 > **Why Decoration Shadow Blur exists as its own field:** a plain horizontal `<line>` has a zero-height bounding box, so a naive percentage-based blur filter region collapses to zero regardless of the blur value — the blur ends up silently clipped away. This node gives each decoration shadow its own explicit pixel-space filter region sized around that specific line, so the blur actually renders instead of disappearing.
 
-### 4.7 Text Background — Solid or genuine frosted Glass
+### 4.7 Text Background
 
 | Field | Details |
 |---|---|
@@ -397,32 +343,163 @@ When Layout Type = Quote, a subtle text watermark (e.g. `@yourbrand`) is availab
 
 ## 6. Image Editing Operations
 
-Field-by-field reference for every operation besides Text and Template.
+Field-by-field reference for every operation besides Text and Template. Every operation also requires a **Property Name** — the binary property on the input item that holds the image data.
 
-| Operation | Fields |
+### 6.1 Blur
+
+Applies a Gaussian blur.
+
+| Field | Details |
 |---|---|
-| **Blur** | **Sigma** — blur strength. |
-| **Border** | **Border Color**, **Border Width**, **Border Height**. |
-| **Composite** | **Composite Image Property** — binary property of the overlay image. **Blend Mode** — 24 options (Over, Multiply, Screen, Overlay, Darken, Lighten, Difference, Exclusion, and more, matching standard compositing operators). **Position X / Position Y** — pixel offset of the overlay. |
-| **Create** | **Background Color**, **Width**, **Height** — generates a blank canvas. |
-| **Crop** | **Width**, **Height**, **Position X**, **Position Y** — extracts a region. |
-| **Draw** | **Primitive** (Rectangle / Circle / Line), **Color** (fill), **Stroke Color**, **Stroke Width**, **Corner Radius** (rectangles), **Start/End Position X/Y**. |
-| **Flip** | No fields — vertical mirror. |
-| **Flop** | No fields — horizontal mirror. |
-| **Gamma** | **Gamma Value** (1.0–3.0). |
-| **Grayscale** | No fields. |
-| **Normalize** | No fields — stretches contrast to the full dynamic range. |
-| **Resize** | **Width**, **Height**, **Resize Option** — Cover / Contain / Fill / Inside / Outside — plus **Resize Background** for letterboxing. |
-| **Rotate** | **Rotate** (degrees), **Background Color** — used for the fill when rotating by anything not a multiple of 90°. |
-| **Sepia** | No fields — warm vintage tone. |
-| **Sharpen** | **Sharpen Sigma**, **Sharpen Flat**, **Sharpen Jagged** — unsharp-mask fine controls. |
-| **Shear** | **Degrees X**, **Degrees Y** — affine shear transform. |
-| **Tint** | **Tint Color** — applies a colour hue overlay. |
-| **Transparent** | **Transparent Color**, **Tolerance** — replaces a colour with alpha transparency (PNG output). |
-| **Watermark** | **Watermark Image Property**, **Gravity**, **Opacity**, **Scale**. |
-| **Get Information** | No fields — returns image metadata (width, height, format, DPI, channels). |
+| **Sigma** | 0.3–1000, default 3. Blur radius — higher values blur more. |
 
-Every operation also requires a **Property Name** — the binary property on the input item that holds the image data.
+### 6.2 Border
+
+Adds a solid-colour border/padding around the image.
+
+| Field | Details |
+|---|---|
+| **Border Width** | Pixels, default 20. Left and right border width. |
+| **Border Height** | Pixels, default 20. Top and bottom border height. |
+| **Border Color** | Default `#000000`. |
+
+### 6.3 Composite
+
+Overlays a second image on top of the source image using any of 24 blend modes.
+
+| Field | Details |
+|---|---|
+| **Composite Image Property** | Binary property name of the overlay image, default `data2`. |
+| **Blend Mode** | 24 options: Clear, Source, Over (Normal), In, Out, Atop, Destination Over/In/Out/Atop, Xor, Add, Saturate, Multiply, Screen, Overlay, Darken, Lighten, Colour Dodge, Colour Burn, Hard Light, Soft Light, Difference, Exclusion — matching standard compositing operators used in design tools like Photoshop. Default Over (Normal). |
+| **Position X / Position Y** | Pixel offset of the overlay from the top-left, default 0, 0. |
+
+### 6.4 Create
+
+Generates a blank canvas in a solid colour — useful as a starting point before adding Text or other operations.
+
+| Field | Details |
+|---|---|
+| **Background Color** | Default `#ffffff`, supports alpha. |
+| **Image Width / Image Height** | Pixels, default 1080 × 1080. |
+
+### 6.5 Crop
+
+Extracts a rectangular region from the image.
+
+| Field | Details |
+|---|---|
+| **Width / Height** | Pixels, default 500 × 500. Size of the crop region. |
+| **Position X / Position Y** | Pixels, default 0, 0. Top-left corner of the crop region. |
+
+### 6.6 Draw
+
+Draws a rectangle, circle, or line directly onto the image, with independent fill and stroke.
+
+| Field | Details |
+|---|---|
+| **Primitive** | Rectangle / Circle / Line. Default Rectangle. |
+| **Color** | Fill colour, default `#ff0000`, supports alpha. |
+| **Stroke Color** | Default `#000000`, supports alpha. |
+| **Stroke Width** | Pixels, default 0 (no stroke). |
+| **Start Position X/Y, End Position X/Y** | Pixel coordinates defining the shape's bounds. |
+
+### 6.7 Flip
+
+Mirrors the image vertically — top becomes bottom. No additional fields.
+
+### 6.8 Flop
+
+Mirrors the image horizontally — left becomes right. No additional fields.
+
+### 6.9 Apply Gamma
+
+Gamma-corrects the image's brightness curve.
+
+| Field | Details |
+|---|---|
+| **Gamma Value** | 1.0 to 3.0, default 2.2. Lower values darken the image, higher values brighten it — this adjusts the tonal curve rather than a flat brightness shift, so midtones are affected more than the extremes. |
+
+### 6.10 Convert to Grayscale
+
+Converts the image to black and white. No additional fields.
+
+### 6.11 Normalize
+
+Stretches contrast to use the full available dynamic range — a flat, low-contrast image gets its darkest pixel pushed toward black and its brightest pixel pushed toward white, with everything else scaled proportionally in between. No additional fields.
+
+### 6.12 Resize
+
+Resizes the image using one of five fit strategies.
+
+| Field | Details |
+|---|---|
+| **Width / Height** | Pixels, default 1080 × 1080. Target dimensions. |
+| **Fit** | Cover (scales to fill, crops excess) / Contain (scales to fit, adds padding) / Fill (stretches, ignores aspect ratio) / Inside (scales down only if larger) / Outside (scales up only if smaller). Default Cover. |
+| **Background Color (for Contain)** | Default `#000000`, supports alpha. Fill colour for the padding added by Contain. |
+
+### 6.13 Rotate
+
+Rotates the image by any angle.
+
+| Field | Details |
+|---|---|
+| **Degrees** | -360 to 360, default 90. Positive rotates clockwise. |
+| **Background Color** | Default transparent. Fill for the area revealed when rotating by anything other than a multiple of 90°. |
+
+### 6.14 Apply Sepia Tone
+
+Applies a warm, vintage sepia tone across the image. No additional fields.
+
+### 6.15 Sharpen
+
+Applies an unsharp mask — the standard sharpening technique used by most image editors.
+
+| Field | Details |
+|---|---|
+| **Sharpen Sigma** | 0.5–5, default 1. The radius of the sharpening effect — higher values sharpen a wider band around each edge. |
+| **Sharpen Flat** | 0–10000, default 1. Threshold for "flat" (low-detail) areas — lower values cause more of the image to be sharpened, including subtle textures. |
+| **Sharpen Jagged** | 0–10000, default 2. Threshold for "jagged" (high-detail) edges — higher values sharpen strong edges more aggressively. |
+
+### 6.16 Shear
+
+Shears the image along the X and/or Y axis via an affine transform.
+
+| Field | Details |
+|---|---|
+| **Shear X (degrees)** | Default 0. Horizontal shear angle. |
+| **Shear Y (degrees)** | Default 10. Vertical shear angle. |
+
+### 6.17 Tint
+
+Applies a colour hue overlay across the image.
+
+| Field | Details |
+|---|---|
+| **Tint Color** | Default `#ff6b35`. The colour used to tint the image — this shifts the image's hue toward the chosen colour rather than simply overlaying it at reduced opacity. |
+
+### 6.18 Transparent
+
+Replaces a specific colour with alpha transparency (PNG output).
+
+| Field | Details |
+|---|---|
+| **Background Color to Remove** | Default `#ffffff`. The colour to replace with transparency. |
+| **Tolerance** | 0–255, default 30. How close a pixel's colour needs to be to the target colour to be made transparent. |
+
+### 6.19 Add Watermark
+
+Overlays a second image (e.g. a logo) onto the source image, with opacity and positioning control.
+
+| Field | Details |
+|---|---|
+| **Watermark Image Property** | Binary property name containing the watermark image, default `watermark`. |
+| **Gravity (Position)** | 9-point placement: Center, Top Left/Center/Right, Middle Left/Right, Bottom Left/Center/Right. Default Bottom Right. |
+| **Opacity (%)** | 0 (invisible) to 100 (fully opaque), default 50. |
+| **Max Size (% of Canvas)** | 1–100, default 20. The watermark is scaled so its longest side is this percentage of the canvas — keeps a logo proportionally sized regardless of the source image's dimensions. |
+
+### 6.20 Get Information
+
+Returns image metadata — width, height, format, DPI, and channel count. No additional fields.
 
 ---
 
