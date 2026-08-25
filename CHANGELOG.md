@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here.
 
+## [1.1.1]
+
+### Added
+- Custom node icon (gold, matching the node's `#D4AF37` accent) — replaces the generic FontAwesome placeholder previously used
+
+### Changed
+- README restructured: single Table of Contents (previously fragmented across multiple sections), a top-level Features table, and each of the 20 non-Text/Template operations now documented individually in §6
+
 ## [1.1.0]
 
 ### Added

@@ -585,7 +585,7 @@ These are deliberate trade-offs, not bugs:
 
 See [CHANGELOG.md](CHANGELOG.md) for the full version history.
 
-**Latest (1.1.0):** Font Family dropdown, Decoration Style modes (Plain/Match/Custom) with real `<line>`-based rendering, Decoration Shadow Blur, and improved bold/italic width estimation so text and its decoration line stay inside the configured boundary.
+**Latest (1.1.1):** New gold node icon, and a restructured README (single Table of Contents, Features overview, every operation documented individually). See [1.1.0] in the changelog for the Font Family dropdown, Decoration Style modes, Decoration Shadow Blur, and bold/italic overflow fix.
 
 ---
 
