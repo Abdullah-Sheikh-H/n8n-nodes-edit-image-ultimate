@@ -1,19 +1,138 @@
-# n8n-nodes-edit-image-ultimate
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Abdullah-Sheikh-H/n8n-nodes-edit-image-ultimate/main/docs/images/logo.svg" width="96" height="96" alt="Edit Image Ultimate logo">
+</p>
 
-[![npm version](https://img.shields.io/npm/v/n8n-nodes-edit-image-ultimate.svg)](https://www.npmjs.com/package/n8n-nodes-edit-image-ultimate)
-[![npm downloads](https://img.shields.io/npm/dm/n8n-nodes-edit-image-ultimate.svg)](https://www.npmjs.com/package/n8n-nodes-edit-image-ultimate)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.md)
-[![n8n community node](https://img.shields.io/badge/n8n-community--node-orange)](https://docs.n8n.io/integrations/community-nodes/)
-
-**Advanced image editing for [n8n](https://n8n.io)**, powered by **[Sharp](https://sharp.pixelplumbing.com/)** (libvips). No GraphicsMagick required.
-
-This node renders text through real SVG, which is what makes its Text operation meaningfully more capable than the built-in Edit Image node: genuine font weights, italics, Gaussian-blurred shadows, frosted-glass backgrounds, and CSS-style justification — none of which GraphicsMagick can do.
+<h1 align="center">n8n-nodes-edit-image-ultimate</h1>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Abdullah-Sheikh-H/n8n-nodes-edit-image-ultimate/main/docs/images/actions-list.png" width="280" alt="Edit Image Ultimate — 23 available actions">
-  <img src="https://raw.githubusercontent.com/Abdullah-Sheikh-H/n8n-nodes-edit-image-ultimate/main/docs/images/text-operation-panel-1.png" width="280" alt="Text operation — font, positioning, and alignment fields">
-  <img src="https://raw.githubusercontent.com/Abdullah-Sheikh-H/n8n-nodes-edit-image-ultimate/main/docs/images/text-operation-panel-2.png" width="280" alt="Text operation — wrapping, decoration, and effects fields">
+  <a href="https://www.npmjs.com/package/n8n-nodes-edit-image-ultimate"><img src="https://img.shields.io/npm/v/n8n-nodes-edit-image-ultimate.svg" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/n8n-nodes-edit-image-ultimate"><img src="https://img.shields.io/npm/dm/n8n-nodes-edit-image-ultimate.svg" alt="npm downloads"></a>
+  <a href="LICENSE.md"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <a href="https://docs.n8n.io/integrations/community-nodes/"><img src="https://img.shields.io/badge/n8n-community--node-orange" alt="n8n community node"></a>
 </p>
+
+<p align="center">
+  <strong>Advanced image editing for <a href="https://n8n.io">n8n</a></strong>, powered by <strong><a href="https://sharp.pixelplumbing.com/">Sharp</a></strong> (libvips). No GraphicsMagick required.
+</p>
+
+<p align="center">
+This node renders text through real SVG — genuine font weights, italics, Gaussian-blurred shadows, frosted-glass backgrounds, and CSS-style justification, none of which GraphicsMagick can do — and pairs it with a full Sharp-powered toolkit: a social-graphic template generator, 24 compositing blend modes, and a Multi-Step mode that chains any combination of operations in a single node.
+</p>
+
+<table align="center">
+  <tr>
+    <td align="center" width="33%">
+      <img src="https://raw.githubusercontent.com/Abdullah-Sheikh-H/n8n-nodes-edit-image-ultimate/main/docs/images/actions-list.png" width="260" alt="Edit Image Ultimate — 23 available actions"><br>
+      <sub>23 built-in actions</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="https://raw.githubusercontent.com/Abdullah-Sheikh-H/n8n-nodes-edit-image-ultimate/main/docs/images/text-operation-panel-1.png" width="260" alt="Text operation — font, positioning, and alignment fields"><br>
+      <sub>Text — font & positioning</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="https://raw.githubusercontent.com/Abdullah-Sheikh-H/n8n-nodes-edit-image-ultimate/main/docs/images/text-operation-panel-2.png" width="260" alt="Text operation — wrapping, decoration, and effects fields"><br>
+      <sub>Text — wrapping & decoration</sub>
+    </td>
+  </tr>
+</table>
+
+---
+
+## New & Updated Operations
+
+n8n's built-in **Edit Image** node has 13 actions. This node has 23: 10 operations that don't exist in the built-in node at all, plus the original 13 — of which 3 (Text, Composite, Multi Step) are substantially deeper here, and the remaining 10 (Blur, Border, Create, Crop, Draw, Get Information, Resize, Rotate, Shear, Transparent) are largely equivalent.
+
+This section documents the 13 that are new or meaningfully changed. The other 10 unchanged operations are covered in [§6](#6-image-editing-operations) alongside everything else.
+
+**Contents**
+
+| New operations | Updated operations |
+|---|---|
+| [Flip](#new-flip) | [Text](#updated-text) |
+| [Flop](#new-flop) | [Composite](#updated-composite) |
+| [Apply Gamma](#new-apply-gamma) | [Multi Step](#updated-multi-step) |
+| [Convert to Grayscale](#new-convert-to-grayscale) | |
+| [Normalize](#new-normalize) | |
+| [Apply Sepia Tone](#new-apply-sepia-tone) | |
+| [Sharpen](#new-sharpen) | |
+| [Create from Template](#5-template-operation) | |
+| [Tint](#new-tint) | |
+| [Add Watermark](#new-add-watermark) | |
+
+Every operation below, like every other operation in the node, requires a **Property Name** — the binary property on the input item holding the image data.
+
+### New: Flip
+
+Mirrors the image vertically — top becomes bottom. No additional fields.
+
+### New: Flop
+
+Mirrors the image horizontally — left becomes right. No additional fields.
+
+### New: Apply Gamma
+
+Gamma-corrects the image's brightness curve.
+
+| Field | Details |
+|---|---|
+| **Gamma Value** | 1.0 to 3.0, default 2.2. Lower values darken the image, higher values brighten it — this adjusts the tonal curve rather than a flat brightness shift, so midtones are affected more than the extremes. |
+
+### New: Convert to Grayscale
+
+Converts the image to black and white. No additional fields.
+
+### New: Normalize
+
+Stretches contrast to use the full available dynamic range — a flat, low-contrast image gets its darkest pixel pushed toward black and its brightest pixel pushed toward white, with everything else scaled proportionally in between. No additional fields.
+
+### New: Apply Sepia Tone
+
+Applies a warm, vintage sepia tone across the image. No additional fields.
+
+### New: Sharpen
+
+Applies an unsharp mask — the standard sharpening technique used by most image editors.
+
+| Field | Details |
+|---|---|
+| **Sharpen Sigma** | 0.5–5, default 1. The radius of the sharpening effect — higher values sharpen a wider band around each edge. |
+| **Sharpen Flat** | 0–10000, default 1. Threshold for "flat" (low-detail) areas — lower values cause more of the image to be sharpened, including subtle textures. |
+| **Sharpen Jagged** | 0–10000, default 2. Threshold for "jagged" (high-detail) edges — higher values sharpen strong edges more aggressively. |
+
+### New: Create from Template
+
+Generates a complete social-graphic (Instagram, YouTube, LinkedIn, and 11 more presets) from scratch — no source image needed. This is the deepest of the new operations, so it has its own full walkthrough in [§5. Template Operation](#5-template-operation).
+
+### New: Tint
+
+Applies a colour hue overlay across the image.
+
+| Field | Details |
+|---|---|
+| **Tint Color** | Default `#ff6b35`. The colour used to tint the image — this shifts the image's hue toward the chosen colour rather than simply overlaying it at reduced opacity. |
+
+### New: Add Watermark
+
+Overlays a second image (e.g. a logo) onto the source image, with opacity and positioning control.
+
+| Field | Details |
+|---|---|
+| **Watermark Image Property** | Binary property name containing the watermark image, default `watermark`. |
+| **Gravity (Position)** | 9-point placement: Center, Top Left/Center/Right, Middle Left/Right, Bottom Left/Center/Right. Default Bottom Right. |
+| **Opacity (%)** | 0 (invisible) to 100 (fully opaque), default 50. |
+| **Max Size (% of Canvas)** | 1–100, default 20. The watermark is scaled so its longest side is this percentage of the canvas — keeps a logo proportionally sized regardless of the source image's dimensions. |
+
+### Updated: Text
+
+Existed in the built-in node as basic bitmap text with no styling. Here it's rebuilt on real SVG rendering, with font weight/style, dynamic font selection, line wrapping, decoration (underline/overline/line-through with shadow), text shadow, and a solid-or-frosted-glass background. This is the single largest feature area in the node, so it has its own full walkthrough in [§4. Text Operation](#4-text-operation).
+
+### Updated: Composite
+
+Existed in the built-in node with a handful of blend modes. Here it supports 24 (Multiply, Screen, Overlay, Darken, Lighten, Difference, Exclusion, and more), matching the standard compositing operators found in design tools like Photoshop, rather than a single flat overlay. Field reference in [§6](#6-image-editing-operations).
+
+### Updated: Multi Step
+
+Existed in the built-in node, but its usefulness is capped by whichever operations it can chain. Since 10 of the operations above only exist in this node, Multi Step here can build pipelines the built-in version structurally cannot — for example Flip → Tint → Sharpen → Add Text in a single node run. Full details in [§7. Multi-Step Mode](#7-multi-step-mode).
 
 ---
 

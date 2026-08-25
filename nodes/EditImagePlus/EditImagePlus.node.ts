@@ -1916,7 +1916,7 @@ export class EditImagePlus implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'Edit Image Ultimate',
 		name: 'editImageUltimate',
-		icon: 'fa:image',
+		icon: 'file:editImageUltimate.svg',
 		group: ['transform'],
 		version: 1,
 		description: 'Advanced image editing: blur, crop, resize, text, templates, effects and more — powered by Sharp',
