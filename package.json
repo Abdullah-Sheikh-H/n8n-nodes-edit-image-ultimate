@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-edit-image-ultimate",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Advanced image editing node for n8n — powered by Sharp (libvips). Rich text styling (opacity, weight, stroke, shadow, decoration, background with solid/frosted-glass fill, justify), gravity/box-anchor positioning, plus templates, watermarks, and 20+ image operations. No GraphicsMagick required.",
   "keywords": [
     "n8n-community-node-package",
@@ -74,7 +74,8 @@
     "n8n-workflow": ">=1.0.0"
   },
   "dependencies": {
-    "sharp": "^0.33.4"
+    "sharp": "^0.33.4",
+    "get-system-fonts": "^2.0.2"
   },
   "devDependencies": {
     "@types/express": "^4.17.6",

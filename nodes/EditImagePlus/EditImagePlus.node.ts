@@ -1,6 +1,7 @@
 import type {
 	IDataObject,
 	IExecuteFunctions,
+	ILoadOptionsFunctions,
 	INodeExecutionData,
 	INodeProperties,
 	INodePropertyOptions,
@@ -9,6 +10,8 @@ import type {
 } from 'n8n-workflow';
 import { NodeOperationError, deepCopy } from 'n8n-workflow';
 import sharp from 'sharp';
+import getSystemFonts from 'get-system-fonts';
+import { parse as parsePath } from 'path';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -896,6 +899,16 @@ const nodeOperationOptions: INodeProperties[] = [
 		description: 'Font size in pixels',
 	},
 	{
+		displayName: 'Font Family',
+		name: 'fontFamily',
+		type: 'options',
+		typeOptions: { loadOptionsMethod: 'getFonts' },
+		default: 'default',
+		displayOptions: { show: { operation: ['text'] } },
+		description:
+			'Fonts actually installed on the server running n8n/Sharp. To use a font not in this list — a family name, a comma-separated CSS-style fallback list, or (for renderers that support it) a file path — click the "fx" expression icon next to this field and type it directly instead of picking from the dropdown.',
+	},
+	{
 		displayName: 'Font Color',
 		name: 'fontColor',
 		type: 'color',
@@ -1143,6 +1156,162 @@ const nodeOperationOptions: INodeProperties[] = [
 			{ name: 'Line Through', value: 'line-through' },
 		],
 		description: 'Line decoration drawn through/under/over the text',
+	},
+	{
+		displayName: 'Decoration Style',
+		name: 'decorationStyleMode',
+		type: 'options',
+		default: 'match',
+		displayOptions: { show: { operation: ['text'], textDecoration: ['underline', 'overline', 'line-through'] } },
+		options: [
+			{ name: 'Plain', value: 'plain' },
+			{ name: 'Match Text', value: 'match' },
+			{ name: 'Custom', value: 'custom' },
+		],
+		description:
+			"Plain: a simple solid line in the font color, no extra effects. Match Text: the decoration line automatically picks up the same stroke and shadow you've enabled on the text itself, so it blends in instead of looking disconnected. Custom: set the decoration's color, thickness, stroke, and shadow independently from the text.",
+	},
+	{
+		displayName: 'Decoration Color',
+		name: 'decorationColor',
+		type: 'color',
+		default: '#ffffff',
+		displayOptions: {
+			show: { operation: ['text'], textDecoration: ['underline', 'overline', 'line-through'], decorationStyleMode: ['custom'] },
+		},
+	},
+	{
+		displayName: 'Decoration Thickness',
+		name: 'decorationThickness',
+		type: 'number',
+		typeOptions: { minValue: 1 },
+		default: 4,
+		displayOptions: {
+			show: { operation: ['text'], textDecoration: ['underline', 'overline', 'line-through'], decorationStyleMode: ['custom'] },
+		},
+		description: 'Thickness of the decoration line, in pixels',
+	},
+	{
+		displayName: 'Enable Decoration Stroke',
+		name: 'decorationStroke',
+		type: 'boolean',
+		default: false,
+		displayOptions: {
+			show: { operation: ['text'], textDecoration: ['underline', 'overline', 'line-through'], decorationStyleMode: ['custom'] },
+		},
+		description: 'Whether to draw an outline around the decoration line itself, like an outlined stroke around a thin bar',
+	},
+	{
+		displayName: 'Decoration Stroke Color',
+		name: 'decorationStrokeColor',
+		type: 'color',
+		default: '#000000',
+		displayOptions: {
+			show: {
+				operation: ['text'],
+				textDecoration: ['underline', 'overline', 'line-through'],
+				decorationStyleMode: ['custom'],
+				decorationStroke: [true],
+			},
+		},
+	},
+	{
+		displayName: 'Decoration Stroke Width',
+		name: 'decorationStrokeWidth',
+		type: 'number',
+		typeOptions: { minValue: 0 },
+		default: 2,
+		displayOptions: {
+			show: {
+				operation: ['text'],
+				textDecoration: ['underline', 'overline', 'line-through'],
+				decorationStyleMode: ['custom'],
+				decorationStroke: [true],
+			},
+		},
+	},
+	{
+		displayName: 'Enable Decoration Shadow',
+		name: 'decorationShadow',
+		type: 'boolean',
+		default: false,
+		displayOptions: {
+			show: { operation: ['text'], textDecoration: ['underline', 'overline', 'line-through'], decorationStyleMode: ['custom'] },
+		},
+		description: 'Adds an offset shadow line behind the decoration, with an optional Gaussian blur',
+	},
+	{
+		displayName: 'Decoration Shadow Color',
+		name: 'decorationShadowColor',
+		type: 'color',
+		default: '#000000',
+		displayOptions: {
+			show: {
+				operation: ['text'],
+				textDecoration: ['underline', 'overline', 'line-through'],
+				decorationStyleMode: ['custom'],
+				decorationShadow: [true],
+			},
+		},
+	},
+	{
+		displayName: 'Decoration Shadow Opacity',
+		name: 'decorationShadowOpacity',
+		type: 'number',
+		typeOptions: { minValue: 0, maxValue: 100 },
+		default: 60,
+		displayOptions: {
+			show: {
+				operation: ['text'],
+				textDecoration: ['underline', 'overline', 'line-through'],
+				decorationStyleMode: ['custom'],
+				decorationShadow: [true],
+			},
+		},
+	},
+	{
+		displayName: 'Decoration Shadow Offset X',
+		name: 'decorationShadowOffsetX',
+		type: 'number',
+		default: 2,
+		displayOptions: {
+			show: {
+				operation: ['text'],
+				textDecoration: ['underline', 'overline', 'line-through'],
+				decorationStyleMode: ['custom'],
+				decorationShadow: [true],
+			},
+		},
+	},
+	{
+		displayName: 'Decoration Shadow Offset Y',
+		name: 'decorationShadowOffsetY',
+		type: 'number',
+		default: 2,
+		displayOptions: {
+			show: {
+				operation: ['text'],
+				textDecoration: ['underline', 'overline', 'line-through'],
+				decorationStyleMode: ['custom'],
+				decorationShadow: [true],
+			},
+		},
+	},
+	{
+		displayName: 'Decoration Shadow Blur',
+		name: 'decorationShadowBlur',
+		type: 'number',
+		typeOptions: { minValue: 0, maxValue: 20 },
+		default: 2,
+		displayOptions: {
+			show: {
+				operation: ['text'],
+				textDecoration: ['underline', 'overline', 'line-through'],
+				decorationStyleMode: ['custom'],
+				decorationShadow: [true],
+			},
+		},
+		description: 'Gaussian blur radius applied to the decoration shadow, in pixels. 0 gives a hard-edged shadow',
 	},
 	{
 		displayName: 'Enable Text Stroke',
@@ -1906,6 +2075,41 @@ export class EditImagePlus implements INodeType {
 	};
 
 	// -------------------------------------------------------------------------
+	// Dynamic dropdowns
+	// -------------------------------------------------------------------------
+	methods = {
+		loadOptions: {
+			// Populates the Font Family dropdown from fonts actually installed on
+			// the machine running n8n/Sharp (matches the pattern used by the
+			// original GraphicsMagick-based fork). Filenames are cleaned up into
+			// readable family names and de-duplicated, since a single family
+			// (e.g. "Arial") typically has several weight/style files on disk.
+			async getFonts(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+				const files = await getSystemFonts();
+				const returnData: INodePropertyOptions[] = [];
+				const seen = new Set<string>();
+				files.forEach((entry) => {
+					const pathParts = parsePath(entry);
+					if (!pathParts.ext) return;
+					const cleaned = pathParts.name
+						.replace(/[-_]/g, ' ')
+						.replace(/\b(Regular|Bold|Italic|Oblique|Light|Medium|SemiBold|ExtraBold|Black|Thin)\b/gi, '')
+						.trim()
+						.replace(/\s+/g, ' ');
+					const displayName = cleaned || pathParts.name;
+					const dedupeKey = displayName.toLowerCase();
+					if (seen.has(dedupeKey)) return;
+					seen.add(dedupeKey);
+					returnData.push({ name: displayName, value: displayName });
+				});
+				returnData.sort((a, b) => a.name.localeCompare(b.name));
+				returnData.unshift({ name: 'Default (Arial, sans-serif)', value: 'default' });
+				return returnData;
+			},
+		},
+	};
+
+	// -------------------------------------------------------------------------
 	// execute
 	// -------------------------------------------------------------------------
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
@@ -2064,12 +2268,15 @@ function buildSingleOpParams(ctx: IExecuteFunctions, operation: string, itemInde
 		shear: ['degreesX', 'degreesY'],
 		template: ['templateName', 'customWidth', 'customHeight', 'templateBgColor', 'templateGradientColor', 'templateLayout', 'templateTitle', 'templateTitleFont', 'templateTitleFontCustom', 'templateTitleColor', 'templateSubtitle', 'templateSubtitleFont', 'templateSubtitleFontCustom', 'templateSubtitleColor', 'templateQuote', 'templateQuoteFont', 'templateQuoteFontCustom', 'templateQuoteAuthor', 'templateQuoteAuthorFont', 'templateQuoteAuthorFontCustom', 'templateMemeTop', 'templateMemeTopFont', 'templateMemeTopFontCustom', 'templateMemeBottom', 'templateMemeBottomFont', 'templateMemeBottomFontCustom', 'templateAccentColor', 'templateTextEffect', 'templateEffectColor', 'templateEffectOpacity', 'templateEffectBlur', 'templateEffectOffsetX', 'templateEffectOffsetY', 'templateEffectOutlineWidth', 'quoteWatermarkText', 'quoteWatermarkFont', 'quoteWatermarkFontCustom', 'quoteWatermarkColor', 'quoteWatermarkOpacity', 'quoteWatermarkX', 'quoteWatermarkY'],
 		text: [
-			'text', 'fontSize', 'fontColor', 'fontWeight', 'fontStyle', 'textAlign', 'justifyStretchLastLine',
+			'text', 'fontSize', 'fontFamily', 'fontColor', 'fontWeight', 'fontStyle', 'textAlign', 'justifyStretchLastLine',
 			'gravity', 'boxAnchor', 'positionX', 'positionY', 'lineHeight',
 			'lineLengthMode', 'lineLength', 'lineLengthPercent', 'lineLengthPixels',
 			'minLineLengthMode', 'minLineLength', 'minLineLengthPercent', 'minLineLengthPixels',
 			'textOverflow',
 			'textOpacity', 'textDecoration',
+			'decorationStyleMode', 'decorationColor', 'decorationThickness',
+			'decorationStroke', 'decorationStrokeColor', 'decorationStrokeWidth',
+			'decorationShadow', 'decorationShadowColor', 'decorationShadowOpacity', 'decorationShadowOffsetX', 'decorationShadowOffsetY', 'decorationShadowBlur',
 			'textStroke', 'strokeColor', 'strokeWidth',
 			'textBackground', 'backgroundStyle', 'textBackgroundColor', 'glassFrost',
 			'boxWidthMode', 'boxWidthUnit', 'boxWidthCustom',
@@ -2534,7 +2741,12 @@ async function applyOperation(
 
 		const rawText = (op.text as string) ?? '';
 		const fontSize = (op.fontSize as number) ?? 48;
+		const fontFamily = (((op.fontFamily as string) || 'default') === 'default'
+			? 'Arial, sans-serif'
+			: (op.fontFamily as string)).trim();
 		const fontWeight = (op.fontWeight as string) ?? '400';
+		const fontStyle = ci(op.fontStyle, 'normal');
+		const isItalicStyle = fontStyle === 'italic' || fontStyle === 'oblique';
 
 		// Max/Min Line Length: for Percent/Pixels modes, wrap by REAL estimated
 		// pixel width directly (measuring the actual characters in each line via
@@ -2544,7 +2756,17 @@ async function applyOperation(
 		// "Characters" mode is intentionally still a literal character count.
 		const lineLengthMode = ci(op.lineLengthMode, 'chars');
 		const weightNum = parseInt(fontWeight, 10) || 400;
-		const boldMultiplier = 1 + Math.max(0, (weightNum - 400) / 500) * 0.15; // 1.0 at 400 → ~1.15 at 900
+		// Character-width estimation has no real glyph metrics behind it, so it
+		// always carries some error — and that error grows with weight/style
+		// (bold and italic glyphs render noticeably wider than the regular-weight
+		// ratio table assumes). Widen the estimate more aggressively as weight
+		// increases, add an italic bump, and layer on a small general safety
+		// margin so wrapped lines — and the box/decoration widths derived from
+		// the same measurement — land a hair inside the configured boundary
+		// instead of flush against it.
+		const styleMultiplier = (isItalicStyle ? 1.07 : 1) * (1 + Math.max(0, (weightNum - 400) / 500) * 0.24); // 1.0 at 400 normal → ~1.24 at 900, +7% more if italic/oblique
+		const safetyMultiplier = 1.04;
+		const boldMultiplier = styleMultiplier * safetyMultiplier;
 		const measure = (s: string) => estimateTextWidth(s, fontSize, boldMultiplier);
 
 		let lineLen = 0; // used only for 'chars' mode
@@ -2601,7 +2823,6 @@ async function applyOperation(
 		const lines = wrapped.split('\n');
 
 		const fontColor = (op.fontColor as string) ?? '#ffffff';
-		const fontStyle = ci(op.fontStyle, 'normal');
 		const textAlign = ci(op.textAlign, 'center');
 		const stretchLastLine = (op.justifyStretchLastLine as boolean) === true;
 		const lineHeight = ((op.lineHeight as number) ?? 1.4) * fontSize;
@@ -2671,9 +2892,6 @@ async function applyOperation(
 			? `stroke="${strokeColor}" stroke-width="${strokeWidth}" paint-order="stroke fill"`
 			: '';
 
-		const decorationAttr =
-			textDecoration !== 'none' ? `text-decoration="${textDecoration}"` : '';
-
 		// ── Box geometry ──────────────────────────────────────────────────────
 		// Width and Height each independently choose Auto (fit to text) or Custom
 		// (fixed size, in px or % of the image's own width/height).
@@ -2740,9 +2958,18 @@ async function applyOperation(
 		// SVG's textLength/lengthAdjust attributes — those aren't reliably
 		// honored by every SVG renderer (including librsvg, which Sharp uses),
 		// whereas plain per-tspan x-coordinates are universally supported.
+		// Decoration (underline/overline/line-through) lines are drawn manually as
+		// SVG <line> elements rather than via the SVG `text-decoration` attribute,
+		// which librsvg (Sharp's SVG renderer) doesn't reliably honor. Each line's
+		// span is recorded here (in the same pass that lays out the tspans) so it
+		// stays consistent with the actual text — same `measure()` function, same
+		// justify/align math — instead of being estimated separately.
+		const decorationLines: { y: number; x1: number; x2: number }[] = [];
+
 		const tspanParts: string[] = [];
 		lines.forEach((line, i) => {
 			const dy = i === 0 ? 0 : lineHeight;
+			const lineBaselineY = firstLineBaselineY + i * lineHeight;
 			const isBlank = line.length === 0;
 			// The last line of EVERY paragraph stays unstretched by default, not
 			// just the very last line of the whole text — otherwise a short final
@@ -2764,6 +2991,10 @@ async function applyOperation(
 					tspanParts.push(`<tspan x="${cursorX}" dy="${wordDy}">${escapeSvg(word)}</tspan>`);
 					cursorX += wordWidths[wi] + gapWidth;
 				});
+				if (textDecoration !== 'none') {
+					// A justified line already spans the full box width by construction.
+					decorationLines.push({ y: lineBaselineY, x1: boxLeft, x2: boxLeft + boxWidth });
+				}
 			} else {
 				// Single-word lines can't be justified (no gaps to stretch) —
 				// render normally, same as non-justify alignments.
@@ -2775,9 +3006,105 @@ async function applyOperation(
 				// worth of vertical space.
 				const content = isBlank ? '&#160;' : escapeSvg(line);
 				tspanParts.push(`<tspan x="${tspanX}" dy="${dy}">${content}</tspan>`);
+				if (textDecoration !== 'none' && !isBlank) {
+					const lineWidth = measure(line);
+					let startX = tspanX;
+					if (textAlign === 'center') startX = tspanX - lineWidth / 2;
+					else if (textAlign === 'right') startX = tspanX - lineWidth;
+					const center = startX + lineWidth / 2;
+					// Estimation is never pixel-perfect against the real rendered
+					// glyphs — a small symmetric tightening keeps the line from
+					// visibly overshooting the actual text on either side.
+					const correctedWidth = lineWidth * 0.97;
+					decorationLines.push({ y: lineBaselineY, x1: center - correctedWidth / 2, x2: center + correctedWidth / 2 });
+				}
 			}
 		});
 		const tspans = tspanParts.join('');
+
+		// ── Decoration line rendering ────────────────────────────────────────
+		const decorationYOffset =
+			textDecoration === 'underline'
+				? fontSize * 0.12
+				: textDecoration === 'overline'
+					? -fontSize * 0.9
+					: -fontSize * 0.3; // line-through
+
+		const decorationStyleMode = ci(op.decorationStyleMode, 'match');
+		let decorationSvg = '';
+		let decorationShadowDefs = '';
+
+		if (decorationStyleMode === 'match') {
+			// Inherits the text's own stroke, so the decoration visually blends
+			// with styled text instead of looking like an unrelated flat bar.
+			const decThickness = Math.max(1, fontSize * 0.06 + (strokeEnabled ? strokeWidth : 0));
+			const decStrokeAttr = strokeEnabled
+				? `stroke="${strokeColor}" stroke-width="${decThickness + strokeWidth}"`
+				: '';
+			decorationSvg = decorationLines
+				.map((d) => {
+					const outline = strokeEnabled
+						? `<line x1="${d.x1}" y1="${d.y + decorationYOffset}" x2="${d.x2}" y2="${d.y + decorationYOffset}" ${decStrokeAttr} stroke-linecap="round"/>`
+						: '';
+					return `${outline}<line x1="${d.x1}" y1="${d.y + decorationYOffset}" x2="${d.x2}" y2="${d.y + decorationYOffset}" stroke="${fontColor}" stroke-width="${decThickness}" stroke-opacity="${textOpacity}" ${filterAttr}/>`;
+				})
+				.join('');
+		} else if (decorationStyleMode === 'custom') {
+			const decColor = (op.decorationColor as string) ?? '#ffffff';
+			const decThickness = (op.decorationThickness as number) ?? 4;
+			const decStrokeEnabled = (op.decorationStroke as boolean) === true;
+			const decStrokeColor = (op.decorationStrokeColor as string) ?? '#000000';
+			const decStrokeWidth = (op.decorationStrokeWidth as number) ?? 2;
+			const decShadowEnabled = (op.decorationShadow as boolean) === true;
+			const decShadowColor = (op.decorationShadowColor as string) ?? '#000000';
+			const decShadowOpacity = ((op.decorationShadowOpacity as number) ?? 60) / 100;
+			const decShadowOffsetX = (op.decorationShadowOffsetX as number) ?? 2;
+			const decShadowOffsetY = (op.decorationShadowOffsetY as number) ?? 2;
+			const decShadowBlur = Math.max(0, (op.decorationShadowBlur as number) ?? 2);
+
+			const shadowFilterDefs: string[] = [];
+			decorationSvg = decorationLines
+				.map((d, idx) => {
+					const y = d.y + decorationYOffset;
+					let shadow = '';
+					if (decShadowEnabled) {
+						// A horizontal <line> has a zero-height bounding box, so the
+						// default objectBoundingBox filter region collapses to zero
+						// regardless of percentage — that's what silently clipped the
+						// blur away before. An explicit userSpaceOnUse region sized
+						// around this specific line avoids that collapse entirely.
+						let shadowFilterAttr = '';
+						if (decShadowBlur > 0) {
+							const filterId = `decShadowBlur${idx}`;
+							const pad = decShadowBlur * 3 + decThickness;
+							const fx = Math.min(d.x1, d.x2) + decShadowOffsetX - pad;
+							const fy = y + decShadowOffsetY - pad;
+							const fw = Math.abs(d.x2 - d.x1) + pad * 2;
+							const fh = pad * 2;
+							shadowFilterDefs.push(
+								`<filter id="${filterId}" x="${fx}" y="${fy}" width="${fw}" height="${fh}" filterUnits="userSpaceOnUse"><feGaussianBlur in="SourceGraphic" stdDeviation="${decShadowBlur}"/></filter>`,
+							);
+							shadowFilterAttr = `filter="url(#${filterId})"`;
+						}
+						shadow = `<line x1="${d.x1 + decShadowOffsetX}" y1="${y + decShadowOffsetY}" x2="${d.x2 + decShadowOffsetX}" y2="${y + decShadowOffsetY}" stroke="${decShadowColor}" stroke-width="${decThickness}" stroke-opacity="${decShadowOpacity}" stroke-linecap="round" ${shadowFilterAttr}/>`;
+					}
+					const outline = decStrokeEnabled
+						? `<line x1="${d.x1}" y1="${y}" x2="${d.x2}" y2="${y}" stroke="${decStrokeColor}" stroke-width="${decThickness + decStrokeWidth * 2}" stroke-linecap="round"/>`
+						: '';
+					return `${shadow}${outline}<line x1="${d.x1}" y1="${y}" x2="${d.x2}" y2="${y}" stroke="${decColor}" stroke-width="${decThickness}"/>`;
+				})
+				.join('');
+			decorationShadowDefs = shadowFilterDefs.join('');
+		} else {
+			// Plain: a simple solid line in the font color, no extra effects.
+			const decorationThickness = Math.max(1, fontSize * 0.06);
+			decorationSvg = decorationLines
+				.map(
+					(d) =>
+						`<line x1="${d.x1}" y1="${d.y + decorationYOffset}" x2="${d.x2}" y2="${d.y + decorationYOffset}" stroke="${fontColor}" stroke-width="${decorationThickness}" stroke-opacity="${textOpacity}"/>`,
+				)
+				.join('');
+		}
 
 		let bgRect = '';
 		let glassLayer = '';
@@ -2856,23 +3183,23 @@ async function applyOperation(
 		}
 
 		const svg = `<svg width="${imgW}" height="${imgH}" xmlns="http://www.w3.org/2000/svg">
-  <defs>${shadowFilter}${clipDefs}</defs>
+  <defs>${shadowFilter}${clipDefs}${decorationShadowDefs}</defs>
   ${bgRect}
   ${glassLayer}
   <text
     x="${textX}" y="${firstLineBaselineY}"
-    font-family="Arial, Helvetica, sans-serif"
+    font-family="${escapeSvg(fontFamily)}"
     font-size="${fontSize}"
     font-weight="${fontWeight}"
     font-style="${fontStyle}"
     fill="${fontColor}"
     fill-opacity="${textOpacity}"
     text-anchor="${svgTextAnchor}"
-    ${decorationAttr}
     ${strokeAttr}
     ${filterAttr}
     ${clipAttr}
   >${tspans}</text>
+  ${decorationSvg}
 </svg>`;
 
 		return instance.composite([{ input: Buffer.from(svg), top: 0, left: 0 }]);
