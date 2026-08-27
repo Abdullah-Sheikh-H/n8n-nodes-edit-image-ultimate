@@ -2,25 +2,30 @@
 
 All notable changes to this project are documented here.
 
-## [1.1.1]
+## [1.2.0] — unreleased
 
 ### Added
-- Custom node icon (gold, matching the node's `#D4AF37` accent) — replaces the generic FontAwesome placeholder previously used
-
-### Changed
-- README restructured: single Table of Contents (previously fragmented across multiple sections), a top-level Features table, and each of the 20 non-Text/Template operations now documented individually in §6
-
-## [1.1.0]
-
-### Added
-- **Font Family** dropdown for the Text operation — dynamically populated from fonts actually installed on the server (via `get-system-fonts`), with expression-mode support for any custom name or file path
+- **Composite** operation now supports three overlay types via a new **Overlay Type** dropdown, not just an image:
+  - **Image** — the existing behaviour, now with configurable size, position, rounded corners, and a border
+  - **Color** — a solid colour panel, with Color and Opacity
+  - **Frost (Glass)** — a genuine frosted-glass panel (real backdrop blur + tint, same technique as Text's Glass background), with Frost Amount, Opacity, and Color
+  - All three share: **Width/Height** (each independently Percent-of-image or Pixels, default 100%), **Gravity** + **Box Anchor** (default Center) with Position X/Y as pixel offsets from the Gravity point, an optional **Border** (color + width), and **Border Radius**
+  - **Blend Mode** now applies to all three overlay types, not just Image
+- **Border Radius** is now a CSS `border-radius`-style shorthand (space-separated, 1-4 values, clockwise from the top-left corner) instead of a single uniform number — for both the new Composite panel and Text's Background, so e.g. `"20 20 0 0"` rounds only the top two corners. Rendered via a hand-built SVG path (plain SVG `rx`/`ry` can't do independent per-corner radii)
+- **Font Family** dropdown for the Text operation, sourced directly from `fc-list`'s real, exact registered family names (not guessed from filenames) — whatever you pick or type is guaranteed to resolve to that exact font
+- **A file path in Font Family now actually works.** Typing a real path to a `.ttf`/`.otf`/`.woff`/`.woff2`/`.ttc` file (via the "fx" expression icon, with or without the extension) dynamically registers that exact font with fontconfig at render time and resolves its real family name — no manual server-side installation needed. Repeat runs against an unchanged file skip the one-time registration cost
 - **Decoration Style** modes for Text Decoration (underline/overline/line-through): **Plain** (simple line), **Match Text** (inherits the text's own stroke and shadow), **Custom** (independent color, thickness, stroke, and shadow)
 - **Decoration Shadow Blur** — the decoration shadow now supports a genuine Gaussian blur, not just a flat offset copy
+- Custom node icon (gold, matching the node's `#D4AF37` accent) — replaces the generic FontAwesome placeholder previously used
 
 ### Fixed
-- Text Decoration is now drawn as real SVG `<line>` elements instead of the `text-decoration` attribute, which the SVG renderer doesn't reliably honor — decoration lines now actually appear, and track the real width of the text underneath them
-- Decoration shadow blur was rendering completely clipped away in earlier testing: a horizontal `<line>` has a zero-height bounding box, so the default percentage-based filter region collapsed to zero regardless of the blur value. Fixed by giving each decoration shadow its own explicit pixel-space filter region sized around that specific line
-- Bold and italic text could render wider than estimated and spill past the configured line-length boundary (most visible at Max Line Length = 100%). Widened the weight/style width-estimation multipliers and added a small general safety margin so wrapped lines land just inside the boundary instead of flush against it — this also makes the decoration line track the actual text width more closely, since both are derived from the same measurement
+- Text Decoration is now drawn as real SVG `<line>` elements instead of the `text-decoration` attribute, which the SVG renderer doesn't reliably honor
+- Decoration shadow blur was rendering completely clipped away: a horizontal `<line>` has a zero-height bounding box, so the default percentage-based filter region collapsed to zero. Fixed with an explicit pixel-space filter region per line
+- **Root cause of both text overflowing its boundary and decoration lines rendering short**: an unrecognized/mistyped Font Family value doesn't error — fontconfig silently substitutes a completely different, unrelated font (confirmed directly: a filename-derived guess was found resolving to DejaVu Sans Bold Oblique instead of the intended font). The dropdown now sources real names from `fc-list`, and width estimation for decoration/box sizing is calibrated against real rendered pixel measurements from two independent fonts (bold is ~4-8% wider than regular; italic doesn't reliably add width). Line-wrapping keeps a separate, larger safety margin specifically to protect against the wrong-font-substitution case actually overflowing the canvas
+
+### Changed
+- Composite's Color and Frost Opacity fields default to 50 (partial tint/overlay), not 100 — Image overlays default to fully opaque as before
+- README restructured: single Table of Contents, a top-level Features table, and each operation documented individually
 
 ## [1.0.0]
 

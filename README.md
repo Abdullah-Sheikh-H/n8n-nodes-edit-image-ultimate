@@ -48,7 +48,7 @@ n8n's built-in **Edit Image** node has 13 actions. This node has 23 — 10 opera
 |---|---|
 | Text | Styled text rendered through real SVG — font weight/style, dynamic font selection, line wrapping, decoration with shadow, text shadow, and a solid-or-frosted-glass background |
 | Template | Generates a complete social-graphic (Instagram, YouTube, LinkedIn, and 11 more presets) from scratch, no source image needed |
-| Composite | Overlays a second image using any of 24 blend modes (Multiply, Screen, Overlay, Difference, Exclusion, and more) |
+| Composite | Overlays an image, a solid colour panel, or a genuine frosted-glass panel — with 24 blend modes, configurable size/position, rounded corners, and a border |
 | Multi Step | Chains any combination of operations in a single node run, including the operations below that don't exist in the built-in node |
 | Flip | Mirrors the image vertically |
 | Flop | Mirrors the image horizontally |
@@ -154,7 +154,7 @@ Point the `N8N_CUSTOM_EXTENSIONS` environment variable at the package, or place 
 | [Template](#5-template-operation) | Generates a complete social-media graphic from a preset — no source image needed |
 | Blur | Gaussian blur, configurable sigma |
 | Border | Solid-colour padding/border |
-| Composite | Overlay an image with 24 blend modes |
+| Composite | Overlay an image, colour panel, or frosted-glass panel — 24 blend modes |
 | Create | Blank canvas in a solid colour |
 | Crop | Extract a region by position and size |
 | Draw | Rectangle, circle, or line, with fill and stroke |
@@ -192,7 +192,7 @@ Set **Operation** to **Text** to reveal all of the fields below. This is the dee
 |---|---|
 | **Text** | The text content to render. Supports multi-line input and expressions. |
 | **Font Size** | Font size in pixels. |
-| **Font Family** | A dropdown populated with fonts actually installed on the machine running n8n/Sharp (via `get-system-fonts`). To use a font that isn't listed — a family name, a comma-separated CSS-style fallback list, or a file path — click the **fx** expression icon next to the field and type it directly instead of picking from the dropdown. |
+| **Font Family** | A dropdown populated with the real, exact family names fontconfig has registered on the server (via `fc-list`) — not a guessed name derived from a filename, so whatever you pick is guaranteed to resolve to that exact font. To use a font that isn't listed, click the **fx** expression icon and either type its family name directly, or type a real path to a `.ttf`/`.otf`/`.woff`/`.woff2`/`.ttc` file (with or without the extension) — the node registers that exact font file with the server on the fly and uses it, no manual installation needed. A typed name that doesn't match any real font and isn't a valid file path won't error; fontconfig silently substitutes a different, unrelated font instead, so double-check the spelling (or the path) if a font doesn't look right. |
 | **Font Color** | Text colour. |
 | **Font Weight** | Full CSS 100–900 range (Thin through Black) via a dropdown. Click **fx** to pass a custom numeric value instead. |
 | **Font Style** | Normal / Italic / Oblique. |
@@ -265,7 +265,7 @@ Positioning is split into four independent controls, matching how design tools l
 | **Frost** | 0–100, shown when Background Style = Glass. 0 = fully invisible (no blur, no tint); 100 = heaviest blur with a fully opaque tint. Controls both tint opacity and backdrop blur intensity together. |
 | **Background Padding** | CSS-style shorthand: `"12"` (all sides), `"10 20"` (top/bottom, then left/right — real CSS order, not x/y), `"10 20 30"`, or `"10 20 30 40"` (top, right, bottom, left). |
 | **Enable Background Border** | → **Border Color**, **Border Width**. |
-| **Border Radius Unit** | Pixels, or **Percent** relative to the box's own size (0% = sharp corners, 100% = fully pill-shaped) → **Border Radius**. |
+| **Border Radius Unit** | Pixels, or **Percent** relative to the box's own size (0% = sharp corners, 100% = fully pill-shaped) → **Border Radius**, a CSS `border-radius`-style shorthand: 1 value = all four corners, 2 values = "top-left/bottom-right top-right/bottom-left", 3 values = "top-left top-right/bottom-left bottom-right", 4 values = "top-left top-right bottom-right bottom-left" (clockwise from top-left). E.g. `"20"` (all corners) or `"20 20 0 0"` (rounded top, square bottom). |
 
 ### 4.8 Case-Insensitivity and Expressions
 
@@ -365,13 +365,25 @@ Adds a solid-colour border/padding around the image.
 
 ### 6.3 Composite
 
-Overlays a second image on top of the source image using any of 24 blend modes.
+Overlays a panel onto the image — an image, a solid colour, or a genuine frosted-glass panel — using any of 24 blend modes.
 
 | Field | Details |
 |---|---|
-| **Composite Image Property** | Binary property name of the overlay image, default `data2`. |
-| **Blend Mode** | 24 options: Clear, Source, Over (Normal), In, Out, Atop, Destination Over/In/Out/Atop, Xor, Add, Saturate, Multiply, Screen, Overlay, Darken, Lighten, Colour Dodge, Colour Burn, Hard Light, Soft Light, Difference, Exclusion — matching standard compositing operators used in design tools like Photoshop. Default Over (Normal). |
-| **Position X / Position Y** | Pixel offset of the overlay from the top-left, default 0, 0. |
+| **Overlay Type** | Image / Color / Frost (Glass). Default Image. Determines which fields below apply. |
+| **Composite Image Property** | *(Image only)* Binary property name of the overlay image, default `data2`. Resized to exactly fill the panel's Width × Height (aspect ratio not preserved). |
+| **Color** | *(Color only)* Fill colour of the panel. |
+| **Opacity (%)** | *(Color and Frost)* 0–100, default 50. For Color, the panel's overall opacity. For Frost, the opacity of the colour tint drawn over the blurred backdrop — 0 leaves the blurred backdrop with no tint at all. |
+| **Frost Amount** | *(Frost only)* 0–100, default 50. How heavily the backdrop behind the panel is blurred — the region of the *current* image behind the panel is cropped, blurred, and laid back down clipped to the panel's shape, exactly like Text's Glass background. |
+| **Color** | *(Frost only)* Tint colour drawn over the blurred backdrop. |
+| **Blend Mode** | 24 options: Clear, Source, Over (Normal), In, Out, Atop, Destination Over/In/Out/Atop, Xor, Add, Saturate, Multiply, Screen, Overlay, Darken, Lighten, Colour Dodge, Colour Burn, Hard Light, Soft Light, Difference, Exclusion — matching standard compositing operators used in design tools like Photoshop. Default Over (Normal). Applies to all three Overlay Types. |
+| **Width Unit / Width** | Percent of Image Width, or Pixels. Default 100 (%). |
+| **Height Unit / Height** | Percent of Image Height, or Pixels. Default 100 (%). |
+| **Gravity** | 9-point anchor on the *base image* — same model as Text's Gravity. Default Center. |
+| **Box Anchor** | Which point of the panel itself lands on the Gravity + Position point — same model as Text's Box Anchor. Default Center. |
+| **Position X / Position Y** | Pixel offset from the Gravity point, default 0, 0. |
+| **Enable Border** | → **Border Color**, **Border Width**. |
+| **Border Radius Unit** | Pixels, or Percent of the panel's own size. |
+| **Border Radius** | CSS `border-radius`-style shorthand, space-separated, clockwise from the top-left corner: 1 value = all four corners, 2 values = "top-left/bottom-right top-right/bottom-left", 3 values = "top-left top-right/bottom-left bottom-right", 4 values = "top-left top-right bottom-right bottom-left". E.g. `"20"` (all corners) or `"20 20 0 0"` (rounded top, square bottom). Default `"0"` (sharp corners). |
 
 ### 6.4 Create
 
@@ -585,7 +597,7 @@ These are deliberate trade-offs, not bugs:
 
 See [CHANGELOG.md](CHANGELOG.md) for the full version history.
 
-**Latest (1.1.1):** New gold node icon, and a restructured README (single Table of Contents, Features overview, every operation documented individually). See [1.1.0] in the changelog for the Font Family dropdown, Decoration Style modes, Decoration Shadow Blur, and bold/italic overflow fix.
+**Latest (1.2.0):** Composite now supports Color and Frost (Glass) overlay types alongside Image, all three sharing configurable size, Gravity/Box Anchor positioning, borders, and CSS-shorthand border radius. Border Radius is now a CSS `border-radius`-style shorthand (per-corner control) for Composite and Text's Background alike. See [1.1.0] in the changelog for the Font Family dropdown (including file-path support), Decoration Style/Shadow features, the node icon, and the font-resolution root-cause fix.
 
 ---
 

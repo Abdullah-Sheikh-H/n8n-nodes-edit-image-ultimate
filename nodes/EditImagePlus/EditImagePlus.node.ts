@@ -12,6 +12,87 @@ import { NodeOperationError, deepCopy } from 'n8n-workflow';
 import sharp from 'sharp';
 import getSystemFonts from 'get-system-fonts';
 import { parse as parsePath } from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import { existsSync, mkdirSync, copyFileSync, statSync } from 'fs';
+import { join as joinPath } from 'path';
+import { homedir } from 'os';
+import { createHash } from 'crypto';
+
+const execFileAsync = promisify(execFile);
+
+const FONT_FILE_EXTENSIONS = ['.ttf', '.otf', '.woff', '.woff2', '.ttc'];
+const FONT_FILE_EXT_PATTERN = /\.(ttf|otf|woff2?|ttc)$/i;
+
+/**
+ * Resolves a path to a real font file on disk — as typed, or (since it's a
+ * common and reasonable way to reference a font) with a font extension
+ * appended if the bare path without one doesn't exist as-is.
+ */
+function resolveExistingFontFilePath(inputPath: string): string | null {
+	if (FONT_FILE_EXT_PATTERN.test(inputPath) && existsSync(inputPath)) return inputPath;
+	if (!FONT_FILE_EXT_PATTERN.test(inputPath)) {
+		for (const ext of FONT_FILE_EXTENSIONS) {
+			const candidate = inputPath + ext;
+			if (existsSync(candidate)) return candidate;
+		}
+	}
+	return null;
+}
+
+/**
+ * Resolves a Font Family expression value that points to an actual font FILE
+ * on disk (not just a family name) into a real, usable fontconfig family name.
+ *
+ * This renderer (Sharp/librsvg) resolves fonts strictly by fontconfig-registered
+ * family name — it can't load a font by file path directly, and confirmed by
+ * direct testing, it silently ignores @font-face/data-URI embedding too. The
+ * only mechanism that actually works is the same one fontconfig itself uses:
+ * get the font's real family name straight from the file (fc-scan reads this
+ * from the font's own name table, no pre-installation needed), then make sure
+ * that exact font is actually registered with fontconfig by copying it into
+ * `~/.fonts` — a location fontconfig scans by default on essentially every
+ * Linux fontconfig setup — and refreshing the font cache.
+ *
+ * Returns null (falls back to treating the input as a literal family name)
+ * if the path doesn't exist, isn't a recognized font file, or if any step of
+ * this process fails for any reason — a working "wrong render" fallback is
+ * better than throwing and breaking the whole node run over a font problem.
+ */
+async function resolveFontFamilyFromFilePath(rawPath: string): Promise<string | null> {
+	const sourcePath = resolveExistingFontFilePath(rawPath);
+	if (!sourcePath) return null;
+	try {
+		const sourceStat = statSync(sourcePath);
+		if (!sourceStat.isFile()) return null;
+
+		const fontsDir = joinPath(homedir(), '.fonts');
+		const ext = parsePath(sourcePath).ext;
+		const hash = createHash('md5').update(sourcePath).digest('hex').slice(0, 16);
+		const cachedPath = joinPath(fontsDir, `eiu-${hash}${ext}`);
+
+		const alreadyCached =
+			existsSync(cachedPath) && statSync(cachedPath).size === sourceStat.size;
+
+		if (!alreadyCached) {
+			mkdirSync(fontsDir, { recursive: true });
+			copyFileSync(sourcePath, cachedPath);
+			// Only pay the fc-cache refresh cost when we actually installed or
+			// updated something — repeat runs against the same unchanged file
+			// skip straight to resolving the name below.
+			await execFileAsync('fc-cache', ['-f', fontsDir]);
+		}
+
+		// fc-scan reads the family name directly out of the font file's own
+		// name table — this works even before the file is registered anywhere,
+		// which is what makes it possible to know the right name to ask for.
+		const { stdout } = await execFileAsync('fc-scan', ['--format', '%{family}', sourcePath]);
+		const family = stdout.split(',')[0].trim();
+		return family || null;
+	} catch (error) {
+		return null;
+	}
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -224,6 +305,62 @@ function parsePadding(input: string): { top: number; right: number; bottom: numb
 	if (parts.length === 2) return { top: parts[0], bottom: parts[0], right: parts[1], left: parts[1] };
 	if (parts.length === 3) return { top: parts[0], right: parts[1], left: parts[1], bottom: parts[2] };
 	return { top: parts[0], right: parts[1], bottom: parts[2], left: parts[3] };
+}
+
+/**
+ * Parses a CSS `border-radius`-style shorthand string into four independent
+ * corner radii, following the exact same value-count rules CSS itself uses
+ * (note the starting corner and direction differ from padding's shorthand —
+ * this matches real CSS `border-radius`, not `padding`):
+ *   "12"              -> all four corners = 12
+ *   "12 20"           -> top-left/bottom-right = 12, top-right/bottom-left = 20
+ *   "12 20 8"         -> top-left = 12, top-right/bottom-left = 20, bottom-right = 8
+ *   "12 20 8 30"      -> top-left = 12, top-right = 20, bottom-right = 8, bottom-left = 30 (clockwise from top-left)
+ */
+function parseBorderRadius(input: string): { tl: number; tr: number; br: number; bl: number } {
+	const parts = (input ?? '')
+		.trim()
+		.split(/\s+/)
+		.map(Number)
+		.filter((n) => !isNaN(n));
+
+	if (parts.length === 0) return { tl: 0, tr: 0, br: 0, bl: 0 };
+	if (parts.length === 1) return { tl: parts[0], tr: parts[0], br: parts[0], bl: parts[0] };
+	if (parts.length === 2) return { tl: parts[0], br: parts[0], tr: parts[1], bl: parts[1] };
+	if (parts.length === 3) return { tl: parts[0], tr: parts[1], bl: parts[1], br: parts[2] };
+	return { tl: parts[0], tr: parts[1], br: parts[2], bl: parts[3] };
+}
+
+/**
+ * Builds an SVG path for a rectangle with four independently-specified corner
+ * radii — plain SVG `<rect rx ry>` only supports a single uniform radius for
+ * all four corners, so per-corner control (matching real CSS `border-radius`)
+ * requires a hand-built path instead. Each radius is clamped so opposing
+ * corners on the same edge can never overlap.
+ */
+function roundedRectPath(
+	x: number,
+	y: number,
+	w: number,
+	h: number,
+	corners: { tl: number; tr: number; br: number; bl: number },
+): string {
+	const maxR = Math.max(0, Math.min(w, h) / 2);
+	const tl = Math.max(0, Math.min(corners.tl, maxR));
+	const tr = Math.max(0, Math.min(corners.tr, maxR));
+	const br = Math.max(0, Math.min(corners.br, maxR));
+	const bl = Math.max(0, Math.min(corners.bl, maxR));
+	return (
+		`M${x + tl},${y} ` +
+		`H${x + w - tr} ` +
+		`A${tr},${tr} 0 0 1 ${x + w},${y + tr} ` +
+		`V${y + h - br} ` +
+		`A${br},${br} 0 0 1 ${x + w - br},${y + h} ` +
+		`H${x + bl} ` +
+		`A${bl},${bl} 0 0 1 ${x},${y + h - bl} ` +
+		`V${y + tl} ` +
+		`A${tl},${tl} 0 0 1 ${x + tl},${y} Z`
+	);
 }
 
 /**
@@ -906,7 +1043,7 @@ const nodeOperationOptions: INodeProperties[] = [
 		default: 'default',
 		displayOptions: { show: { operation: ['text'] } },
 		description:
-			'Fonts actually installed on the server running n8n/Sharp. To use a font not in this list — a family name, a comma-separated CSS-style fallback list, or (for renderers that support it) a file path — click the "fx" expression icon next to this field and type it directly instead of picking from the dropdown.',
+			'Fonts actually installed on the server running n8n/Sharp. To use a font not in this list, click the "fx" expression icon and either type its family name directly, or type a real path to a .ttf/.otf/.woff/.woff2/.ttc file (with or without the extension) — that font gets registered with the server automatically and used by its real name, no manual installation needed. A typed value that doesn\'t match a real font and isn\'t a valid file path won\'t error; fontconfig silently substitutes a different, unrelated font instead, so double-check spelling/path if a font looks wrong.',
 	},
 	{
 		displayName: 'Font Color',
@@ -1491,11 +1628,11 @@ const nodeOperationOptions: INodeProperties[] = [
 	{
 		displayName: 'Border Radius',
 		name: 'textBackgroundBorderRadius',
-		type: 'number',
-		typeOptions: { minValue: 0 },
-		default: 0,
+		type: 'string',
+		default: '0',
 		displayOptions: { show: { operation: ['text'], textBackground: [true] } },
-		description: 'Corner rounding of the background box. 0 = sharp corners. Unit is set by Border Radius Unit above.',
+		description:
+			'CSS border-radius-style shorthand, space-separated, clockwise from the top-left corner. 1 value = all four corners. 2 values = "top-left/bottom-right top-right/bottom-left". 3 values = "top-left top-right/bottom-left bottom-right". 4 values = "top-left top-right bottom-right bottom-left". Examples: "20" (all corners 20) · "0 20" (square left corners, rounded right corners) · "20 20 0 0" (rounded top, square bottom). 0 = sharp corners. Unit is set by Border Radius Unit above.',
 	},
 	{
 		displayName: 'Enable Text Shadow',
@@ -1591,13 +1728,68 @@ const nodeOperationOptions: INodeProperties[] = [
 	// composite
 	// ────────────────────────────────────────────────────────────────────────
 	{
+		displayName: 'Overlay Type',
+		name: 'compositeOverlayType',
+		type: 'options',
+		default: 'image',
+		displayOptions: { show: { operation: ['composite'] } },
+		options: [
+			{ name: 'Image', value: 'image' },
+			{ name: 'Color', value: 'color' },
+			{ name: 'Frost (Glass)', value: 'frost' },
+		],
+		description: 'What to composite onto the image: another image, a solid colour panel, or a genuine frosted-glass panel',
+	},
+	{
 		displayName: 'Composite Image Property',
 		name: 'dataPropertyNameComposite',
 		type: 'string',
 		default: 'data2',
 		placeholder: 'data2',
-		displayOptions: { show: { operation: ['composite'] } },
+		displayOptions: { show: { operation: ['composite'], compositeOverlayType: ['image'] } },
 		description: 'Binary property name that contains the image to overlay',
+	},
+	{
+		displayName: 'Color',
+		name: 'compositeColor',
+		type: 'color',
+		default: '#ffffff',
+		displayOptions: { show: { operation: ['composite'], compositeOverlayType: ['color'] } },
+		description: 'Fill colour of the overlay panel',
+	},
+	{
+		displayName: 'Opacity (%)',
+		name: 'compositeColorOpacity',
+		type: 'number',
+		typeOptions: { minValue: 0, maxValue: 100 },
+		default: 50,
+		displayOptions: { show: { operation: ['composite'], compositeOverlayType: ['color'] } },
+	},
+	{
+		displayName: 'Frost Amount',
+		name: 'compositeFrostAmount',
+		type: 'number',
+		typeOptions: { minValue: 0, maxValue: 100 },
+		default: 50,
+		displayOptions: { show: { operation: ['composite'], compositeOverlayType: ['frost'] } },
+		description: 'How heavily the backdrop behind the panel is blurred. 0 = no blur, 100 = heaviest blur',
+	},
+	{
+		displayName: 'Opacity (%)',
+		name: 'compositeFrostOpacity',
+		type: 'number',
+		typeOptions: { minValue: 0, maxValue: 100 },
+		default: 50,
+		displayOptions: { show: { operation: ['composite'], compositeOverlayType: ['frost'] } },
+		description: 'Opacity of the colour tint drawn over the blurred backdrop. 0 = the blurred backdrop alone, no tint',
+	},
+	{
+		displayName: 'Color',
+		name: 'compositeFrostColor',
+		type: 'color',
+		default: '#ffffff',
+		displayOptions: { show: { operation: ['composite'], compositeOverlayType: ['frost'] } },
+		description: 'Tint colour drawn over the blurred backdrop',
 	},
 	{
 		displayName: 'Blend Mode',
@@ -1631,7 +1823,85 @@ const nodeOperationOptions: INodeProperties[] = [
 			{ name: 'Exclusion', value: 'exclusion' },
 		],
 		default: 'over',
-		description: 'Blending mode for compositing',
+		description: 'Blending mode for compositing — applies to Image, Color, and Frost overlays alike',
+	},
+	{
+		displayName: 'Width Unit',
+		name: 'compositeWidthMode',
+		type: 'options',
+		default: 'percent',
+		displayOptions: { show: { operation: ['composite'] } },
+		options: [
+			{ name: 'Percent of Image Width', value: 'percent' },
+			{ name: 'Pixels', value: 'pixels' },
+		],
+	},
+	{
+		displayName: 'Width',
+		name: 'compositeWidth',
+		type: 'number',
+		typeOptions: { minValue: 1 },
+		default: 100,
+		displayOptions: { show: { operation: ['composite'] } },
+		description: 'Width of the overlay panel. With Width Unit = Percent, 100 means the full width of the base image',
+	},
+	{
+		displayName: 'Height Unit',
+		name: 'compositeHeightMode',
+		type: 'options',
+		default: 'percent',
+		displayOptions: { show: { operation: ['composite'] } },
+		options: [
+			{ name: 'Percent of Image Height', value: 'percent' },
+			{ name: 'Pixels', value: 'pixels' },
+		],
+	},
+	{
+		displayName: 'Height',
+		name: 'compositeHeight',
+		type: 'number',
+		typeOptions: { minValue: 1 },
+		default: 100,
+		displayOptions: { show: { operation: ['composite'] } },
+		description: 'Height of the overlay panel. With Height Unit = Percent, 100 means the full height of the base image',
+	},
+	{
+		displayName: 'Gravity',
+		name: 'compositeGravity',
+		type: 'options',
+		default: 'center',
+		displayOptions: { show: { operation: ['composite'] } },
+		options: [
+			{ name: 'North West', value: 'northwest' },
+			{ name: 'North', value: 'north' },
+			{ name: 'North East', value: 'northeast' },
+			{ name: 'West', value: 'west' },
+			{ name: 'Center', value: 'center' },
+			{ name: 'East', value: 'east' },
+			{ name: 'South West', value: 'southwest' },
+			{ name: 'South', value: 'south' },
+			{ name: 'South East', value: 'southeast' },
+		],
+		description: 'Anchor point on the base image. Position X/Y below are pixel offsets from this point',
+	},
+	{
+		displayName: 'Box Anchor',
+		name: 'compositeBoxAnchor',
+		type: 'options',
+		default: 'center',
+		displayOptions: { show: { operation: ['composite'] } },
+		options: [
+			{ name: 'North West', value: 'northwest' },
+			{ name: 'North', value: 'north' },
+			{ name: 'North East', value: 'northeast' },
+			{ name: 'West', value: 'west' },
+			{ name: 'Center', value: 'center' },
+			{ name: 'East', value: 'east' },
+			{ name: 'South West', value: 'southwest' },
+			{ name: 'South', value: 'south' },
+			{ name: 'South East', value: 'southeast' },
+		],
+		description: 'Which point of the overlay panel itself lands on the Gravity + Position point',
 	},
 	{
 		displayName: 'Position X',
@@ -1639,7 +1909,7 @@ const nodeOperationOptions: INodeProperties[] = [
 		type: 'number',
 		default: 0,
 		displayOptions: { show: { operation: ['composite'] } },
-		description: 'X offset of the overlay image (pixels from left)',
+		description: 'X offset from the Gravity point (pixels). Positive moves right',
 	},
 	{
 		displayName: 'Position Y',
@@ -1647,7 +1917,49 @@ const nodeOperationOptions: INodeProperties[] = [
 		type: 'number',
 		default: 0,
 		displayOptions: { show: { operation: ['composite'] } },
-		description: 'Y offset of the overlay image (pixels from top)',
+		description: 'Y offset from the Gravity point (pixels). Positive moves down',
+	},
+	{
+		displayName: 'Enable Border',
+		name: 'compositeBorder',
+		type: 'boolean',
+		default: false,
+		displayOptions: { show: { operation: ['composite'] } },
+	},
+	{
+		displayName: 'Border Color',
+		name: 'compositeBorderColor',
+		type: 'color',
+		default: '#000000',
+		displayOptions: { show: { operation: ['composite'], compositeBorder: [true] } },
+	},
+	{
+		displayName: 'Border Width',
+		name: 'compositeBorderWidth',
+		type: 'number',
+		typeOptions: { minValue: 0 },
+		default: 2,
+		displayOptions: { show: { operation: ['composite'], compositeBorder: [true] } },
+	},
+	{
+		displayName: 'Border Radius Unit',
+		name: 'compositeBorderRadiusUnit',
+		type: 'options',
+		default: 'pixels',
+		displayOptions: { show: { operation: ['composite'] } },
+		options: [
+			{ name: 'Pixels', value: 'pixels' },
+			{ name: 'Percent of Panel Size', value: 'percent' },
+		],
+	},
+	{
+		displayName: 'Border Radius',
+		name: 'compositeBorderRadius',
+		type: 'string',
+		default: '0',
+		displayOptions: { show: { operation: ['composite'] } },
+		description:
+			'CSS border-radius-style shorthand, space-separated, clockwise from the top-left corner. 1 value = all four corners. 2 values = "top-left/bottom-right top-right/bottom-left". 3 values = "top-left top-right/bottom-left bottom-right". 4 values = "top-left top-right bottom-right bottom-left". Examples: "20" (all corners 20) · "0 20" (square left corners, rounded right corners). With Border Radius Unit = Percent, 100 is fully rounded/pill-shaped for that corner.',
 	},
 
 	// ────────────────────────────────────────────────────────────────────────
@@ -2085,26 +2397,59 @@ export class EditImagePlus implements INodeType {
 			// readable family names and de-duplicated, since a single family
 			// (e.g. "Arial") typically has several weight/style files on disk.
 			async getFonts(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
-				const files = await getSystemFonts();
-				const returnData: INodePropertyOptions[] = [];
-				const seen = new Set<string>();
-				files.forEach((entry) => {
-					const pathParts = parsePath(entry);
-					if (!pathParts.ext) return;
-					const cleaned = pathParts.name
-						.replace(/[-_]/g, ' ')
-						.replace(/\b(Regular|Bold|Italic|Oblique|Light|Medium|SemiBold|ExtraBold|Black|Thin)\b/gi, '')
-						.trim()
-						.replace(/\s+/g, ' ');
-					const displayName = cleaned || pathParts.name;
-					const dedupeKey = displayName.toLowerCase();
-					if (seen.has(dedupeKey)) return;
-					seen.add(dedupeKey);
-					returnData.push({ name: displayName, value: displayName });
-				});
-				returnData.sort((a, b) => a.name.localeCompare(b.name));
-				returnData.unshift({ name: 'Default (Arial, sans-serif)', value: 'default' });
-				return returnData;
+				// Query fontconfig directly for the real, exact family names it has
+				// registered — NOT filenames cleaned up into a guessed name. A
+				// cleaned-up filename like "Nunito VariableFont wght" is not
+				// necessarily a name fontconfig actually recognizes: if it doesn't
+				// match, fontconfig silently substitutes a completely different
+				// fallback font rather than erroring, which is exactly what was
+				// happening here (a font selection was rendering as an unrelated,
+				// wider fallback font with no visible error). fc-list's own family
+				// output is guaranteed to resolve to that exact font every time.
+				try {
+					const { stdout } = await execFileAsync('fc-list', [':', 'family']);
+					const seen = new Set<string>();
+					const returnData: INodePropertyOptions[] = [];
+					stdout.split('\n').forEach((line) => {
+						line.split(',').forEach((fam) => {
+							const name = fam.trim();
+							if (!name) return;
+							const dedupeKey = name.toLowerCase();
+							if (seen.has(dedupeKey)) return;
+							seen.add(dedupeKey);
+							returnData.push({ name, value: name });
+						});
+					});
+					returnData.sort((a, b) => a.name.localeCompare(b.name));
+					returnData.unshift({ name: 'Default (Arial, sans-serif)', value: 'default' });
+					return returnData;
+				} catch (error) {
+					// fc-list isn't available on this host (e.g. non-Linux, or
+					// fontconfig genuinely missing) — fall back to filename-based
+					// discovery so the dropdown isn't completely empty. This is a
+					// best-effort fallback only; typed expression values are always
+					// safer than dropdown picks on a host without fontconfig anyway.
+					const files = await getSystemFonts();
+					const seen = new Set<string>();
+					const returnData: INodePropertyOptions[] = [];
+					files.forEach((entry) => {
+						const pathParts = parsePath(entry);
+						if (!pathParts.ext) return;
+						const cleaned = pathParts.name
+							.replace(/[-_]/g, ' ')
+							.replace(/\b(Regular|Bold|Italic|Oblique|Light|Medium|SemiBold|ExtraBold|Black|Thin)\b/gi, '')
+							.trim()
+							.replace(/\s+/g, ' ');
+						const displayName = cleaned || pathParts.name;
+						const dedupeKey = displayName.toLowerCase();
+						if (seen.has(dedupeKey)) return;
+						seen.add(dedupeKey);
+						returnData.push({ name: displayName, value: displayName });
+					});
+					returnData.sort((a, b) => a.name.localeCompare(b.name));
+					returnData.unshift({ name: 'Default (Arial, sans-serif)', value: 'default' });
+					return returnData;
+				}
 			},
 		},
 	};
@@ -2252,7 +2597,15 @@ function buildSingleOpParams(ctx: IExecuteFunctions, operation: string, itemInde
 	const paramNames: Record<string, string[]> = {
 		blur: ['sigma'],
 		border: ['borderColor', 'borderWidth', 'borderHeight'],
-		composite: ['dataPropertyNameComposite', 'operator', 'positionX', 'positionY'],
+		composite: [
+			'compositeOverlayType', 'dataPropertyNameComposite',
+			'compositeColor', 'compositeColorOpacity',
+			'compositeFrostAmount', 'compositeFrostOpacity', 'compositeFrostColor',
+			'operator',
+			'compositeWidthMode', 'compositeWidth', 'compositeHeightMode', 'compositeHeight',
+			'compositeGravity', 'compositeBoxAnchor', 'positionX', 'positionY',
+			'compositeBorder', 'compositeBorderColor', 'compositeBorderWidth', 'compositeBorderRadiusUnit', 'compositeBorderRadius',
+		],
 		create: ['backgroundColor', 'width', 'height'],
 		crop: ['width', 'height', 'positionX', 'positionY'],
 		draw: ['color', 'strokeColor', 'strokeWidth', 'cornerRadius', 'endPositionX', 'endPositionY', 'primitive', 'startPositionX', 'startPositionY'],
@@ -2598,15 +2951,150 @@ async function applyOperation(
 	}
 
 	if (operation === 'composite') {
-		const propName = op.dataPropertyNameComposite as string;
-		ctx.helpers.assertBinaryData(itemIndex, propName);
-		const overlayBuf = await ctx.helpers.getBinaryDataBuffer(itemIndex, propName);
-		return instance.composite([{
-			input: overlayBuf,
-			left: (op.positionX as number) ?? 0,
-			top: (op.positionY as number) ?? 0,
-			blend: (op.operator as sharp.Blend) ?? 'over',
-		}]);
+		const meta = await instance.metadata();
+		const imgW = meta.width ?? 800;
+		const imgH = meta.height ?? 600;
+
+		const overlayType = ci(op.compositeOverlayType, 'image');
+		const blendMode = (op.operator as sharp.Blend) ?? 'over';
+
+		// ── Panel size: Percent (of the base image) or Pixels, independently
+		// for width and height — same unit-toggle pattern used by Text's box
+		// sizing and Template's dimensions elsewhere in this node.
+		const widthMode = ci(op.compositeWidthMode, 'percent');
+		const heightMode = ci(op.compositeHeightMode, 'percent');
+		const widthRaw = (op.compositeWidth as number) ?? 100;
+		const heightRaw = (op.compositeHeight as number) ?? 100;
+		const boxWidth = Math.max(1, Math.round(widthMode === 'percent' ? imgW * (widthRaw / 100) : widthRaw));
+		const boxHeight = Math.max(1, Math.round(heightMode === 'percent' ? imgH * (heightRaw / 100) : heightRaw));
+
+		// ── Position: Gravity is a pure anchor point on the base image; Position
+		// X/Y are pixel offsets from it; Box Anchor decides which point of the
+		// panel itself lands on that final point — identical model to the Text
+		// operation's Gravity/Position/Box Anchor, for the same reason (lets you
+		// pin the panel flush to an edge or corner without doing size math by
+		// hand for the offset).
+		const gravity = ci(op.compositeGravity, 'center');
+		const boxAnchor = ci(op.compositeBoxAnchor, 'center');
+		const offsetX = (op.positionX as number) ?? 0;
+		const offsetY = (op.positionY as number) ?? 0;
+
+		let anchorX = imgW / 2;
+		let anchorY = imgH / 2;
+		if (gravity === 'northwest' || gravity === 'west' || gravity === 'southwest') {
+			anchorX = 0;
+		} else if (gravity === 'northeast' || gravity === 'east' || gravity === 'southeast') {
+			anchorX = imgW;
+		}
+		if (gravity === 'northwest' || gravity === 'north' || gravity === 'northeast') {
+			anchorY = 0;
+		} else if (gravity === 'southwest' || gravity === 'south' || gravity === 'southeast') {
+			anchorY = imgH;
+		}
+		const posX = anchorX + offsetX;
+		const posY = anchorY + offsetY;
+
+		let boxLeft = posX;
+		if (boxAnchor === 'north' || boxAnchor === 'center' || boxAnchor === 'south') {
+			boxLeft = posX - boxWidth / 2;
+		} else if (boxAnchor === 'northeast' || boxAnchor === 'east' || boxAnchor === 'southeast') {
+			boxLeft = posX - boxWidth;
+		}
+		let boxTop = posY;
+		if (boxAnchor === 'west' || boxAnchor === 'center' || boxAnchor === 'east') {
+			boxTop = posY - boxHeight / 2;
+		} else if (boxAnchor === 'southwest' || boxAnchor === 'south' || boxAnchor === 'southeast') {
+			boxTop = posY - boxHeight;
+		}
+		boxLeft = Math.round(boxLeft);
+		boxTop = Math.round(boxTop);
+
+		// ── Border / radius — shared by all three overlay types.
+		const borderRadiusUnit = ci(op.compositeBorderRadiusUnit, 'pixels');
+		const borderRadiusRaw = parseBorderRadius((op.compositeBorderRadius as string) ?? '0');
+		const cornerBasis = Math.min(boxWidth, boxHeight) / 2;
+		const corners =
+			borderRadiusUnit === 'percent'
+				? {
+						tl: (borderRadiusRaw.tl / 100) * cornerBasis,
+						tr: (borderRadiusRaw.tr / 100) * cornerBasis,
+						br: (borderRadiusRaw.br / 100) * cornerBasis,
+						bl: (borderRadiusRaw.bl / 100) * cornerBasis,
+					}
+				: borderRadiusRaw;
+
+		const borderEnabled = (op.compositeBorder as boolean) === true;
+		const borderColor = (op.compositeBorderColor as string) ?? '#000000';
+		const borderWidth = (op.compositeBorderWidth as number) ?? 2;
+		const borderAttr = borderEnabled ? `stroke="${borderColor}" stroke-width="${borderWidth}"` : 'stroke="none"';
+		const panelPath = roundedRectPath(boxLeft, boxTop, boxWidth, boxHeight, corners);
+
+		let panelSvgBody = '';
+		let extraDefs = '';
+
+		if (overlayType === 'color') {
+			const color = (op.compositeColor as string) ?? '#ffffff';
+			const opacity = ((op.compositeColorOpacity as number) ?? 50) / 100;
+			panelSvgBody = `<path d="${panelPath}" fill="${color}" fill-opacity="${opacity}" ${borderAttr}/>`;
+		} else if (overlayType === 'frost') {
+			// Genuine frosted glass — same technique as Text's Glass background:
+			// crop the region of the CURRENT image behind the panel, blur it,
+			// lay it back down clipped to the (rounded) panel shape, with a
+			// tinted overlay on top.
+			const frostAmount = ((op.compositeFrostAmount as number) ?? 50) / 100;
+			const frostOpacity = ((op.compositeFrostOpacity as number) ?? 50) / 100;
+			const frostColor = (op.compositeFrostColor as string) ?? '#ffffff';
+
+			const visLeft = Math.max(0, boxLeft);
+			const visTop = Math.max(0, boxTop);
+			const visRight = Math.min(imgW, boxLeft + boxWidth);
+			const visBottom = Math.min(imgH, boxTop + boxHeight);
+			const clampX = Math.round(visLeft);
+			const clampY = Math.round(visTop);
+			const clampW = Math.max(0, Math.round(visRight - visLeft));
+			const clampH = Math.max(0, Math.round(visBottom - visTop));
+
+			if (clampW > 0 && clampH > 0) {
+				const blurSigma = Math.max(0.3, frostAmount * 15); // heavier frost = heavier blur
+				const baseBuffer = await instance.clone().png().toBuffer();
+				const blurredCrop = await sharp(baseBuffer)
+					.extract({ left: clampX, top: clampY, width: clampW, height: clampH })
+					.blur(blurSigma)
+					.png()
+					.toBuffer();
+				const blurredB64 = blurredCrop.toString('base64');
+				const clipPath = roundedRectPath(clampX, clampY, clampW, clampH, corners);
+				extraDefs = `<clipPath id="compFrostClip"><path d="${clipPath}"/></clipPath>`;
+				panelSvgBody = `<image x="${clampX}" y="${clampY}" width="${clampW}" height="${clampH}" href="data:image/png;base64,${blurredB64}" clip-path="url(#compFrostClip)"/>
+  <path d="${panelPath}" fill="${frostColor}" fill-opacity="${frostOpacity}" ${borderAttr}/>`;
+			} else {
+				// Panel is entirely outside the canvas — nothing to blur, fall
+				// back to a plain tinted panel so it doesn't just disappear.
+				panelSvgBody = `<path d="${panelPath}" fill="${frostColor}" fill-opacity="${frostOpacity}" ${borderAttr}/>`;
+			}
+		} else {
+			// image
+			const propName = (op.dataPropertyNameComposite as string) || 'data2';
+			ctx.helpers.assertBinaryData(itemIndex, propName);
+			const overlayBuf = await ctx.helpers.getBinaryDataBuffer(itemIndex, propName);
+			// Stretched to the exact panel size (Width/Height are explicit here,
+			// unlike Watermark's proportional scaling) — matches what Width/
+			// Height as independent fields imply.
+			const resized = await sharp(overlayBuf).resize(boxWidth, boxHeight, { fit: 'fill' }).png().toBuffer();
+			const b64 = resized.toString('base64');
+			extraDefs = `<clipPath id="compImgClip"><path d="${panelPath}"/></clipPath>`;
+			panelSvgBody = `<image x="${boxLeft}" y="${boxTop}" width="${boxWidth}" height="${boxHeight}" href="data:image/png;base64,${b64}" clip-path="url(#compImgClip)"/>`;
+			if (borderEnabled) {
+				panelSvgBody += `\n  <path d="${panelPath}" fill="none" ${borderAttr}/>`;
+			}
+		}
+
+		const svg = `<svg width="${imgW}" height="${imgH}" xmlns="http://www.w3.org/2000/svg">
+  <defs>${extraDefs}</defs>
+  ${panelSvgBody}
+</svg>`;
+
+		return instance.composite([{ input: Buffer.from(svg), top: 0, left: 0, blend: blendMode }]);
 	}
 
 	if (operation === 'create') {
@@ -2741,12 +3229,32 @@ async function applyOperation(
 
 		const rawText = (op.text as string) ?? '';
 		const fontSize = (op.fontSize as number) ?? 48;
-		const fontFamily = (((op.fontFamily as string) || 'default') === 'default'
-			? 'Arial, sans-serif'
-			: (op.fontFamily as string)).trim();
+		const rawFontFamilyInput = ((op.fontFamily as string) || 'default').trim();
+		let fontFamily: string;
+		if (rawFontFamilyInput === 'default') {
+			fontFamily = 'Arial, sans-serif';
+		} else {
+			// A genuine file path to a font file gets registered with fontconfig
+			// on the fly (see resolveFontFamilyFromFilePath) and resolved to its
+			// real family name. This only succeeds for an actual existing file —
+			// anything else (a plain family name, or a filename that happens to
+			// have a font extension but isn't a real path) falls through.
+			const resolvedFromPath = await resolveFontFamilyFromFilePath(rawFontFamilyInput);
+			if (resolvedFromPath) {
+				fontFamily = resolvedFromPath;
+			} else {
+				// Not a real file path — but a *filename* typed with its extension
+				// is still a fixable mistake: fontconfig family names never
+				// include ".ttf"/".otf" etc, so strip it before lookup rather than
+				// failing outright. This is why "Font-Name.ttf" alone (no path)
+				// fails while the identical "Font-Name" works.
+				fontFamily = FONT_FILE_EXT_PATTERN.test(rawFontFamilyInput)
+					? rawFontFamilyInput.replace(FONT_FILE_EXT_PATTERN, '')
+					: rawFontFamilyInput;
+			}
+		}
 		const fontWeight = (op.fontWeight as string) ?? '400';
 		const fontStyle = ci(op.fontStyle, 'normal');
-		const isItalicStyle = fontStyle === 'italic' || fontStyle === 'oblique';
 
 		// Max/Min Line Length: for Percent/Pixels modes, wrap by REAL estimated
 		// pixel width directly (measuring the actual characters in each line via
@@ -2756,18 +3264,37 @@ async function applyOperation(
 		// "Characters" mode is intentionally still a literal character count.
 		const lineLengthMode = ci(op.lineLengthMode, 'chars');
 		const weightNum = parseInt(fontWeight, 10) || 400;
-		// Character-width estimation has no real glyph metrics behind it, so it
-		// always carries some error — and that error grows with weight/style
-		// (bold and italic glyphs render noticeably wider than the regular-weight
-		// ratio table assumes). Widen the estimate more aggressively as weight
-		// increases, add an italic bump, and layer on a small general safety
-		// margin so wrapped lines — and the box/decoration widths derived from
-		// the same measurement — land a hair inside the configured boundary
-		// instead of flush against it.
-		const styleMultiplier = (isItalicStyle ? 1.07 : 1) * (1 + Math.max(0, (weightNum - 400) / 500) * 0.24); // 1.0 at 400 normal → ~1.24 at 900, +7% more if italic/oblique
-		const safetyMultiplier = 1.04;
-		const boldMultiplier = styleMultiplier * safetyMultiplier;
-		const measure = (s: string) => estimateTextWidth(s, fontSize, boldMultiplier);
+		// Character-width estimation has no real glyph metrics behind it, so it's
+		// always approximate. Measured against two independent real fonts (a
+		// Regular/Bold-only font, and a genuine variable-weight font rendered at
+		// its actual named weight instances), bold text comes out only ~4-8%
+		// wider than regular, and italic style doesn't reliably add width at all
+		// — sometimes it's marginally narrower. A flat "is this bold" step with
+		// no separate italic factor matches both measurements far more closely
+		// than a formula assuming smooth, continuous growth across the full CSS
+		// 100–900 range (most fonts only have a Regular and a Bold face, so
+		// anything ≥600 renders identically regardless of the exact number).
+		const isBoldWeight = weightNum >= 600;
+		const styleMultiplier = isBoldWeight ? 1.06 : 1;
+		// This accurate multiplier is what decoration-line width, background-box
+		// sizing, and justify's per-word gap math use — anywhere the result needs
+		// to visually track the real text as closely as possible.
+		const measure = (s: string) => estimateTextWidth(s, fontSize, styleMultiplier);
+		// Wrapping decisions get a larger safety margin on top, used only for
+		// "does this line still fit" checks — never for anything that gets drawn
+		// (decoration, box, justify gaps). This is deliberately more generous
+		// than the accurate multiplier above: an unrecognized/mistyped Font
+		// Family value silently falls back to a DIFFERENT font entirely with no
+		// error (confirmed directly: an unregistered name can fall back to a
+		// noticeably wider font than the one actually selected) — a fontconfig
+		// behavior this node has no way to detect from the inside. This margin
+		// is the safety net against that case actually overflowing the canvas,
+		// at the cost of wrapped lines landing further short of the true limit
+		// when the font resolves correctly. It cannot fully protect against an
+		// arbitrarily different fallback font — the real fix for that is making
+		// sure Font Family actually resolves to the intended font in the first
+		// place (a real fontconfig family name, or a real file path).
+		const wrapMeasure = (s: string) => estimateTextWidth(s, fontSize, styleMultiplier * 1.18);
 
 		let lineLen = 0; // used only for 'chars' mode
 		let wrapWidthPx: number | null = null;
@@ -2796,7 +3323,7 @@ async function applyOperation(
 				// Max is Percent/Pixels (pixel-space) but Min is Characters — bridge
 				// the character count into an estimated pixel width so the minimum
 				// still actually applies, instead of silently being ignored.
-				minWrapWidthPx = measure('n'.repeat(minLineLen));
+				minWrapWidthPx = wrapMeasure('n'.repeat(minLineLen));
 			}
 		}
 
@@ -2805,8 +3332,8 @@ async function applyOperation(
 			// Percent/Pixels mode — genuine pixel-width wrapping.
 			wrapped =
 				minWrapWidthPx !== null
-					? wrapTextByWidthWithMin(rawText, wrapWidthPx, minWrapWidthPx, measure)
-					: wrapTextByWidth(rawText, wrapWidthPx, measure);
+					? wrapTextByWidthWithMin(rawText, wrapWidthPx, minWrapWidthPx, wrapMeasure)
+					: wrapTextByWidth(rawText, wrapWidthPx, wrapMeasure);
 		} else {
 			// Characters mode — literal character-count wrapping, as before.
 			wrapped = minLineLengthMode === 'auto' ? wrapText(rawText, lineLen) : wrapTextWithMin(rawText, lineLen, minLineLen);
@@ -2817,7 +3344,7 @@ async function applyOperation(
 			// the limit, using real pixel-width measurement when available.
 			wrapped =
 				wrapWidthPx !== null
-					? forceBreakLongLinesByWidth(wrapped, wrapWidthPx, measure)
+					? forceBreakLongLinesByWidth(wrapped, wrapWidthPx, wrapMeasure)
 					: forceBreakLongLines(wrapped, lineLen);
 		}
 		const lines = wrapped.split('\n');
@@ -2876,7 +3403,7 @@ async function applyOperation(
 		const bgBorderColor = (op.textBackgroundBorderColor as string) ?? '#FFFFFF';
 		const bgBorderWidth = (op.textBackgroundBorderWidth as number) ?? 2;
 		const bgBorderRadiusUnit = ci(op.textBackgroundBorderRadiusUnit, 'px');
-		const bgBorderRadiusValue = (op.textBackgroundBorderRadius as number) ?? 0;
+		const bgBorderRadiusValue = parseBorderRadius((op.textBackgroundBorderRadius as string) ?? '0');
 
 		const boxWidthMode = ci(op.boxWidthMode, 'auto');
 		const boxWidthUnit = ci(op.boxWidthUnit, 'px');
@@ -3108,7 +3635,7 @@ async function applyOperation(
 
 		let bgRect = '';
 		let glassLayer = '';
-		let radiusPx = 0;
+		let corners = { tl: 0, tr: 0, br: 0, bl: 0 };
 		let rectX = 0, rectY = 0, rectW = 0, rectH = 0;
 
 		if (bgEnabled) {
@@ -3119,10 +3646,17 @@ async function applyOperation(
 
 			// Percent radius is relative to the box's own size (0% = sharp,
 			// 100% = fully rounded/pill), so it scales with the box automatically.
-			radiusPx =
+			const cornerBasis = Math.min(rectW, rectH) / 2;
+			corners =
 				bgBorderRadiusUnit === 'percent'
-					? (bgBorderRadiusValue / 100) * (Math.min(rectW, rectH) / 2)
+					? {
+							tl: (bgBorderRadiusValue.tl / 100) * cornerBasis,
+							tr: (bgBorderRadiusValue.tr / 100) * cornerBasis,
+							br: (bgBorderRadiusValue.br / 100) * cornerBasis,
+							bl: (bgBorderRadiusValue.bl / 100) * cornerBasis,
+						}
 					: bgBorderRadiusValue;
+			const boxPath = roundedRectPath(rectX, rectY, rectW, rectH, corners);
 
 			const bgStrokeAttr = bgBorderEnabled
 				? `stroke="${bgBorderColor}" stroke-width="${bgBorderWidth}"`
@@ -3151,18 +3685,19 @@ async function applyOperation(
 						.png()
 						.toBuffer();
 					const blurredB64 = blurredCrop.toString('base64');
+					const clipPath = roundedRectPath(clampX, clampY, clampW, clampH, corners);
 
 					glassLayer = `
-  <defs><clipPath id="glassClip"><rect x="${clampX}" y="${clampY}" width="${clampW}" height="${clampH}" rx="${radiusPx}" ry="${radiusPx}"/></clipPath></defs>
+  <defs><clipPath id="glassClip"><path d="${clipPath}"/></clipPath></defs>
   <image x="${clampX}" y="${clampY}" width="${clampW}" height="${clampH}" href="data:image/png;base64,${blurredB64}" clip-path="url(#glassClip)"/>
-  <rect x="${rectX}" y="${rectY}" width="${rectW}" height="${rectH}" rx="${radiusPx}" ry="${radiusPx}" fill="${bgColor}" fill-opacity="${glassFrost}" ${bgStrokeAttr}/>`;
+  <path d="${boxPath}" fill="${bgColor}" fill-opacity="${glassFrost}" ${bgStrokeAttr}/>`;
 				} else {
 					// Box is entirely outside the canvas — nothing to blur, fall back
-					// to a plain tinted rect so it doesn't just silently disappear.
-					glassLayer = `<rect x="${rectX}" y="${rectY}" width="${rectW}" height="${rectH}" rx="${radiusPx}" ry="${radiusPx}" fill="${bgColor}" fill-opacity="${glassFrost}" ${bgStrokeAttr}/>`;
+					// to a plain tinted panel so it doesn't just silently disappear.
+					glassLayer = `<path d="${boxPath}" fill="${bgColor}" fill-opacity="${glassFrost}" ${bgStrokeAttr}/>`;
 				}
 			} else if (backgroundStyle === 'solid') {
-				bgRect = `<rect x="${rectX}" y="${rectY}" width="${rectW}" height="${rectH}" rx="${radiusPx}" ry="${radiusPx}" fill="${bgColor}" ${bgStrokeAttr}/>`;
+				bgRect = `<path d="${boxPath}" fill="${bgColor}" ${bgStrokeAttr}/>`;
 			}
 			// backgroundStyle === 'glass' && glassFrost === 0 → nothing drawn at all,
 			// box is genuinely invisible, matching "0 = fully transparent".
@@ -3177,8 +3712,9 @@ async function applyOperation(
 			const clipY = bgEnabled ? rectY : boxTop;
 			const clipW = bgEnabled ? rectW : boxWidth;
 			const clipH = bgEnabled ? rectH : boxHeight;
-			const clipR = bgEnabled ? radiusPx : 0;
-			clipDefs = `<clipPath id="textOverflowClip"><rect x="${clipX}" y="${clipY}" width="${clipW}" height="${clipH}" rx="${clipR}" ry="${clipR}"/></clipPath>`;
+			const clipCorners = bgEnabled ? corners : { tl: 0, tr: 0, br: 0, bl: 0 };
+			const clipPath = roundedRectPath(clipX, clipY, clipW, clipH, clipCorners);
+			clipDefs = `<clipPath id="textOverflowClip"><path d="${clipPath}"/></clipPath>`;
 			clipAttr = 'clip-path="url(#textOverflowClip)"';
 		}
 
