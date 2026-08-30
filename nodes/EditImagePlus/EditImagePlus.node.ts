@@ -264,6 +264,24 @@ function ci(value: unknown, fallback = ''): string {
 }
 
 /**
+ * Safely coerces a node parameter to a string before any string method
+ * (.trim(), .split(), .replace(), etc.) is called on it. A `type: 'string'`
+ * UI field is still just a compile-time TypeScript annotation — `as string`
+ * has no runtime effect, and any field can receive a non-string value at
+ * runtime via expression mode (e.g. an upstream node passing a number, or a
+ * plain numeric expression like `40` evaluating to a JS number rather than a
+ * string). Calling `.trim()` directly on that throws ("X.trim is not a
+ * function") and fails the whole node run. Every field that gets a string
+ * method called on it anywhere in this file should go through this first.
+ */
+function asString(value: unknown, fallback = ''): string {
+	if (typeof value === 'string') return value;
+	if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+	if (value === null || value === undefined) return fallback;
+	return fallback;
+}
+
+/**
  * Character-count version of forceBreakLongLinesByWidth — same single-token
  * guard, so Min Line Length's legitimate multi-word overshoot lines aren't
  * shattered mid-word by this.
@@ -293,8 +311,8 @@ function forceBreakLongLines(text: string, maxLen: number): string {
  *   "10 20 30"       -> top = 10, left/right = 20, bottom = 30
  *   "10 20 30 40"    -> top = 10, right = 20, bottom = 30, left = 40 (clockwise from top)
  */
-function parsePadding(input: string): { top: number; right: number; bottom: number; left: number } {
-	const parts = (input ?? '')
+function parsePadding(input: unknown): { top: number; right: number; bottom: number; left: number } {
+	const parts = asString(input)
 		.trim()
 		.split(/\s+/)
 		.map(Number)
@@ -317,8 +335,8 @@ function parsePadding(input: string): { top: number; right: number; bottom: numb
  *   "12 20 8"         -> top-left = 12, top-right/bottom-left = 20, bottom-right = 8
  *   "12 20 8 30"      -> top-left = 12, top-right = 20, bottom-right = 8, bottom-left = 30 (clockwise from top-left)
  */
-function parseBorderRadius(input: string): { tl: number; tr: number; br: number; bl: number } {
-	const parts = (input ?? '')
+function parseBorderRadius(input: unknown): { tl: number; tr: number; br: number; bl: number } {
+	const parts = asString(input)
 		.trim()
 		.split(/\s+/)
 		.map(Number)
@@ -373,6 +391,108 @@ function hexToRgba(hex: string): { r: number; g: number; b: number; alpha: numbe
 	const b = parseInt(clean.substring(4, 6), 16) || 0;
 	const alpha = clean.length === 8 ? (parseInt(clean.substring(6, 8), 16) || 255) / 255 : 1;
 	return { r, g, b, alpha };
+}
+
+/**
+ * Generates the Max/Min Line Length field group (mode + value, for both) for
+ * one Template text area — same Characters/Percent/Pixels system as the Text
+ * operation's own Max/Min Line Length, just namespaced per text area so
+ * Title, Subtitle, Quote, Meme Top, and Meme Bottom can each be wrapped
+ * independently.
+ */
+function makeTemplateWrapFields(
+	prefix: string,
+	label: string,
+	showConditions: Record<string, string[]>,
+): INodeProperties[] {
+	const show = { operation: ['template'], ...showConditions };
+	return [
+		{
+			displayName: `${label} Max Line Length Mode`,
+			name: `${prefix}MaxLineLengthMode`,
+			type: 'options',
+			default: 'chars',
+			displayOptions: { show },
+			options: [
+				{ name: 'Characters', value: 'chars' },
+				{ name: 'Percent of Image Width', value: 'percent' },
+				{ name: 'Pixels', value: 'pixels' },
+			],
+		},
+		{
+			displayName: `${label} Max Line Length`,
+			name: `${prefix}MaxLineLength`,
+			type: 'number',
+			typeOptions: { minValue: 1 },
+			default: 30,
+			displayOptions: { show },
+			description:
+				'Wraps onto a new line once a line reaches this length. In Characters mode this is a literal character count; in Percent/Pixels mode it\'s measured against actual estimated text width.',
+		},
+		{
+			displayName: `${label} Min Line Length Mode`,
+			name: `${prefix}MinLineLengthMode`,
+			type: 'options',
+			default: 'auto',
+			displayOptions: { show },
+			options: [
+				{ name: 'Auto (No Minimum)', value: 'auto' },
+				{ name: 'Characters', value: 'chars' },
+				{ name: 'Percent of Image Width', value: 'percent' },
+				{ name: 'Pixels', value: 'pixels' },
+			],
+		},
+		{
+			displayName: `${label} Min Line Length`,
+			name: `${prefix}MinLineLength`,
+			type: 'number',
+			typeOptions: { minValue: 1 },
+			default: 15,
+			displayOptions: { show, hide: { [`${prefix}MinLineLengthMode`]: ['auto'] } },
+			description: 'Avoids short orphan trailing lines by merging them into the line before — but never past Max Line Length.',
+		},
+	];
+}
+
+/**
+ * Resolves one Template text area's raw text into wrapped lines, using the
+ * exact same wrapping engine as the Text operation (estimateTextWidth /
+ * wrapTextByWidth / wrapTextWithMin and their Min-aware variants) — so
+ * Percent/Pixels modes wrap by real estimated glyph width, not a naive
+ * average-character-width guess.
+ */
+function resolveTemplateWrappedLines(
+	text: string,
+	op: IDataObject,
+	prefix: string,
+	fontSize: number,
+	imgWidth: number,
+): string[] {
+	if (!text) return [];
+	const maxMode = ci(op[`${prefix}MaxLineLengthMode`], 'chars');
+	const minMode = ci(op[`${prefix}MinLineLengthMode`], 'auto');
+	const measure = (s: string) => estimateTextWidth(s, fontSize, 1);
+
+	let wrapped: string;
+	if (maxMode === 'percent' || maxMode === 'pixels') {
+		const maxWidthPx =
+			maxMode === 'percent'
+				? imgWidth * (((op[`${prefix}MaxLineLength`] as number) ?? 80) / 100)
+				: ((op[`${prefix}MaxLineLength`] as number) ?? 800);
+		let minWidthPx: number | null = null;
+		if (minMode === 'percent') {
+			minWidthPx = imgWidth * (((op[`${prefix}MinLineLength`] as number) ?? 40) / 100);
+		} else if (minMode === 'pixels') {
+			minWidthPx = (op[`${prefix}MinLineLength`] as number) ?? 400;
+		} else if (minMode === 'chars') {
+			minWidthPx = measure('n'.repeat((op[`${prefix}MinLineLength`] as number) ?? 20));
+		}
+		wrapped = minWidthPx !== null ? wrapTextByWidthWithMin(text, maxWidthPx, minWidthPx, measure) : wrapTextByWidth(text, maxWidthPx, measure);
+	} else {
+		const maxLen = (op[`${prefix}MaxLineLength`] as number) ?? 30;
+		wrapped = minMode === 'auto' ? wrapText(text, maxLen) : wrapTextWithMin(text, maxLen, (op[`${prefix}MinLineLength`] as number) ?? 15);
+	}
+	return wrapped.split('\n');
 }
 
 /**
@@ -443,13 +563,126 @@ function wrapTextWithMin(text: string, maxLineLength: number, minLineLength: num
 /**
  * Escapes characters that would break inline SVG.
  */
-function escapeSvg(str: string): string {
-	return str
+function escapeSvg(str: unknown): string {
+	return asString(str)
 		.replace(/&/g, '&amp;')
 		.replace(/</g, '&lt;')
 		.replace(/>/g, '&gt;')
 		.replace(/"/g, '&quot;')
 		.replace(/'/g, '&apos;');
+}
+
+/**
+ * Builds a `style="font-family: '...'"` attribute instead of a bare
+ * `font-family="..."` presentation attribute. This matters specifically for
+ * font names containing a space followed by a digit (e.g. "Exo 2") —
+ * confirmed by direct testing, the SVG renderer's font-family PRESENTATION
+ * ATTRIBUTE is parsed as a compact Pango font-description string, where a
+ * trailing number is ambiguous with a point-size specifier: "Exo 2" silently
+ * resolves as family "Exo" at size 2 and falls back to a default font, with
+ * no error. Routing the same value through the CSS `style` attribute instead
+ * uses CSS's own (unambiguous) parser and resolves correctly.
+ */
+function fontFamilyStyleAttr(fontName: unknown): string {
+	return `style="font-family: '${escapeSvg(fontName)}'"`;
+}
+
+/**
+ * Distance from a point, travelling in a given direction, to the edge of the
+ * canvas rectangle — a standard ray/box intersection. Used so that "100%" in
+ * Percent mode always means "exactly reaches that edge," whichever edge is
+ * actually in that direction, rather than an arbitrary fraction of the full
+ * image dimension (which only happens to reach the edge from dead center).
+ */
+function rayDistanceToCanvasEdge(
+	anchorX: number,
+	anchorY: number,
+	dirX: number,
+	dirY: number,
+	imgW: number,
+	imgH: number,
+): number {
+	const candidates: number[] = [];
+	if (dirX > 1e-9) candidates.push((imgW - anchorX) / dirX);
+	else if (dirX < -1e-9) candidates.push((0 - anchorX) / dirX);
+	if (dirY > 1e-9) candidates.push((imgH - anchorY) / dirY);
+	else if (dirY < -1e-9) candidates.push((0 - anchorY) / dirY);
+	const positive = candidates.filter((c) => c > 0);
+	return positive.length > 0 ? Math.min(...positive) : 0;
+}
+
+/**
+ * Shared tooltip text for the Position X / Position Y fields (Text and
+ * Composite operations both use these verbatim). Direction is always the
+ * same literal compass direction regardless of Gravity; only the reachable
+ * *range* changes per Gravity, because it's measured from that Gravity's own
+ * anchor point — see resolvePositionOffset() above for the implementation.
+ */
+const POSITION_GUIDE_INTRO =
+	'0 = exactly at the Gravity anchor, no offset. Direction is always the same regardless of Gravity: +X = right, -X = left, +Y = up, -Y = down. ' +
+	'100% reaches the canvas edge in that direction (Percent mode) — but if the chosen Gravity already sits on that edge, there is no room left, so pushing further that way has no effect (0 offset, whatever the value).\n\n' +
+	'Per-Gravity quick reference (Percent mode; Pixels mode is the same directions, unscaled):\n' +
+	'• Center: x -100 left · 0 center · 100 right — y -100 bottom · 0 center · 100 top\n' +
+	'• North: x same as Center — y -100 bottom · 0 top (anchor, no + room)\n' +
+	'• South: x same as Center — y 0 bottom (anchor, no - room) · 100 top\n' +
+	'• East: x -100 left · 0 right (anchor, no + room) — y same as Center\n' +
+	'• West: x 0 left (anchor, no - room) · 100 right — y same as Center\n' +
+	'• North East: x -100 left · 0 right (anchor) — y -100 bottom · 0 top (anchor)\n' +
+	'• North West: x 0 left (anchor) · 100 right — y -100 bottom · 0 top (anchor)\n' +
+	'• South East: x -100 left · 0 right (anchor) — y 0 bottom (anchor) · 100 top\n' +
+	'• South West: x 0 left (anchor) · 100 right — y 0 bottom (anchor) · 100 top';
+
+const POSITION_X_DESCRIPTION = `Horizontal offset from the Gravity anchor. ${POSITION_GUIDE_INTRO}`;
+const POSITION_Y_DESCRIPTION = `Vertical offset from the Gravity anchor. ${POSITION_GUIDE_INTRO}`;
+
+/**
+ * Resolves Position X/Y (in either Pixels or Percent) into a final
+ * standard-space (x: +right, y: +down) pixel offset from the Gravity anchor.
+ *
+ * Direction is always the same, literal compass direction, for every single
+ * Gravity point — there is no rotation and no separate "behavior" to choose:
+ *   +X = right, -X = left, +Y = up, -Y = down.
+ *
+ * 0 always means "exactly at the Gravity anchor, no offset." In Percent
+ * mode, 100% (or -100%) reaches whichever canvas edge actually lies in that
+ * direction FROM THIS ANCHOR — computed via ray/box intersection per
+ * direction. This is what makes the range naturally asymmetric for
+ * off-center Gravities without any per-gravity special-casing here: an
+ * anchor already sitting on an edge has zero distance left to travel that
+ * way, so that side of the range collapses to a no-op on its own (e.g.
+ * Gravity = South already sits on the bottom edge, so any negative Y, which
+ * would mean "further down," has no effect; positive Y still climbs all the
+ * way to the top edge same as everywhere else). Center, and any axis where
+ * the chosen Gravity is centered, is symmetric in both directions.
+ */
+function resolvePositionOffset(
+	op: IDataObject,
+	imgW: number,
+	imgH: number,
+	anchorX: number,
+	anchorY: number,
+): { x: number; y: number } {
+	const rawX = (op.positionX as number) ?? 0;
+	const rawY = (op.positionY as number) ?? 0;
+	const unit = ci(op.positionUnit, 'percent');
+
+	if (unit !== 'percent') {
+		// Pixels mode: direct, unscaled, same fixed directions as Percent.
+		return { x: rawX, y: -rawY };
+	}
+
+	const basisRight = rayDistanceToCanvasEdge(anchorX, anchorY, 1, 0, imgW, imgH);
+	const basisLeft = rayDistanceToCanvasEdge(anchorX, anchorY, -1, 0, imgW, imgH);
+	const basisUp = rayDistanceToCanvasEdge(anchorX, anchorY, 0, -1, imgW, imgH);
+	const basisDown = rayDistanceToCanvasEdge(anchorX, anchorY, 0, 1, imgW, imgH);
+
+	const basisX = rawX >= 0 ? basisRight : basisLeft;
+	const basisY = rawY >= 0 ? basisUp : basisDown;
+
+	return {
+		x: (rawX / 100) * basisX,
+		y: -(rawY / 100) * basisY,
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -634,6 +867,7 @@ const nodeOperationOptions: INodeProperties[] = [
 		displayOptions: { show: { operation: ['template'], templateLayout: ['standard'] } },
 		description: 'Primary headline text (leave blank to skip)',
 	},
+	...makeTemplateWrapFields('templateTitle', 'Title', { templateLayout: ['standard'] }),
 	{
 		displayName: 'Title Font',
 		name: 'templateTitleFont',
@@ -668,6 +902,7 @@ const nodeOperationOptions: INodeProperties[] = [
 		displayOptions: { show: { operation: ['template'], templateLayout: ['standard'] } },
 		description: 'Secondary subtitle text (leave blank to skip)',
 	},
+	...makeTemplateWrapFields('templateSubtitle', 'Subtitle', { templateLayout: ['standard'] }),
 	{
 		displayName: 'Subtitle Font',
 		name: 'templateSubtitleFont',
@@ -703,6 +938,7 @@ const nodeOperationOptions: INodeProperties[] = [
 		displayOptions: { show: { operation: ['template'], templateLayout: ['quote'] } },
 		description: 'A centered quote to display on the template. Wraps automatically.',
 	},
+	...makeTemplateWrapFields('templateQuote', 'Quote', { templateLayout: ['quote'] }),
 	{
 		displayName: 'Quote Font',
 		name: 'templateQuoteFont',
@@ -755,6 +991,7 @@ const nodeOperationOptions: INodeProperties[] = [
 		displayOptions: { show: { operation: ['template'], templateLayout: ['meme'] } },
 		description: 'Text displayed at the top of the meme',
 	},
+	...makeTemplateWrapFields('templateMemeTop', 'Top Text', { templateLayout: ['meme'] }),
 	{
 		displayName: 'Top Text Font',
 		name: 'templateMemeTopFont',
@@ -781,6 +1018,7 @@ const nodeOperationOptions: INodeProperties[] = [
 		displayOptions: { show: { operation: ['template'], templateLayout: ['meme'] } },
 		description: 'Text displayed at the bottom of the meme',
 	},
+	...makeTemplateWrapFields('templateMemeBottom', 'Bottom Text', { templateLayout: ['meme'] }),
 	{
 		displayName: 'Bottom Text Font',
 		name: 'templateMemeBottomFont',
@@ -1151,12 +1389,25 @@ const nodeOperationOptions: INodeProperties[] = [
 			'Which point of the text box itself sits at the Gravity anchor (Position X/Y). E.g. North = the box\'s top edge is placed at the anchor, so the box extends downward from it. Center = the box\'s own center sits exactly at the anchor. This is independent of Text Align, which only controls how lines align within the box.',
 	},
 	{
+		displayName: 'Position Unit',
+		name: 'positionUnit',
+		type: 'options',
+		default: 'percent',
+		displayOptions: { show: { operation: ['text'] } },
+		options: [
+			{ name: 'Pixels', value: 'pixels' },
+			{ name: 'Percent', value: 'percent' },
+		],
+		description: '100% always reaches exactly the canvas edge in that direction, -100% the opposite edge — the basis is the actual remaining distance from the Gravity anchor to that edge, not a flat percent of the full image dimension. See Position X / Position Y below for the direction convention and a per-Gravity reference.',
+	},
+	{
 		displayName: 'Position X',
 		name: 'positionX',
 		type: 'number',
 		default: 0,
 		displayOptions: { show: { operation: ['text'] } },
-		description: 'Horizontal offset from the Gravity anchor, in pixels. Positive moves right, negative moves left.',
+		hint: '0 = Gravity anchor, unchanged. + = right, − = left. 100% reaches that edge — less (or 0) if this Gravity already sits on it.',
+		description: POSITION_X_DESCRIPTION,
 	},
 	{
 		displayName: 'Position Y',
@@ -1164,7 +1415,8 @@ const nodeOperationOptions: INodeProperties[] = [
 		type: 'number',
 		default: 0,
 		displayOptions: { show: { operation: ['text'] } },
-		description: 'Vertical offset from the Gravity anchor, in pixels. Positive moves down, negative moves up.',
+		hint: '0 = Gravity anchor, unchanged. + = up, − = down. 100% reaches that edge — less (or 0) if this Gravity already sits on it.',
+		description: POSITION_Y_DESCRIPTION,
 	},
 	{
 		displayName: 'Line Height',
@@ -1904,12 +2156,25 @@ const nodeOperationOptions: INodeProperties[] = [
 		description: 'Which point of the overlay panel itself lands on the Gravity + Position point',
 	},
 	{
+		displayName: 'Position Unit',
+		name: 'positionUnit',
+		type: 'options',
+		default: 'percent',
+		displayOptions: { show: { operation: ['composite'] } },
+		options: [
+			{ name: 'Pixels', value: 'pixels' },
+			{ name: 'Percent', value: 'percent' },
+		],
+		description: '100% always reaches exactly the canvas edge in that direction, -100% the opposite edge — the basis is the actual remaining distance from the Gravity anchor to that edge, not a flat percent of the full image dimension. See Position X / Position Y below for the direction convention and a per-Gravity reference.',
+	},
+	{
 		displayName: 'Position X',
 		name: 'positionX',
 		type: 'number',
 		default: 0,
 		displayOptions: { show: { operation: ['composite'] } },
-		description: 'X offset from the Gravity point (pixels). Positive moves right',
+		hint: '0 = Gravity anchor, unchanged. + = right, − = left. 100% reaches that edge — less (or 0) if this Gravity already sits on it.',
+		description: POSITION_X_DESCRIPTION,
 	},
 	{
 		displayName: 'Position Y',
@@ -1917,7 +2182,8 @@ const nodeOperationOptions: INodeProperties[] = [
 		type: 'number',
 		default: 0,
 		displayOptions: { show: { operation: ['composite'] } },
-		description: 'Y offset from the Gravity point (pixels). Positive moves down',
+		hint: '0 = Gravity anchor, unchanged. + = up, − = down. 100% reaches that edge — less (or 0) if this Gravity already sits on it.',
+		description: POSITION_Y_DESCRIPTION,
 	},
 	{
 		displayName: 'Enable Border',
@@ -2603,7 +2869,7 @@ function buildSingleOpParams(ctx: IExecuteFunctions, operation: string, itemInde
 			'compositeFrostAmount', 'compositeFrostOpacity', 'compositeFrostColor',
 			'operator',
 			'compositeWidthMode', 'compositeWidth', 'compositeHeightMode', 'compositeHeight',
-			'compositeGravity', 'compositeBoxAnchor', 'positionX', 'positionY',
+			'compositeGravity', 'compositeBoxAnchor', 'positionUnit', 'positionX', 'positionY',
 			'compositeBorder', 'compositeBorderColor', 'compositeBorderWidth', 'compositeBorderRadiusUnit', 'compositeBorderRadius',
 		],
 		create: ['backgroundColor', 'width', 'height'],
@@ -2619,10 +2885,10 @@ function buildSingleOpParams(ctx: IExecuteFunctions, operation: string, itemInde
 		sepia: [],
 		sharpen: ['sharpenSigma', 'sharpenFlat', 'sharpenJagged'],
 		shear: ['degreesX', 'degreesY'],
-		template: ['templateName', 'customWidth', 'customHeight', 'templateBgColor', 'templateGradientColor', 'templateLayout', 'templateTitle', 'templateTitleFont', 'templateTitleFontCustom', 'templateTitleColor', 'templateSubtitle', 'templateSubtitleFont', 'templateSubtitleFontCustom', 'templateSubtitleColor', 'templateQuote', 'templateQuoteFont', 'templateQuoteFontCustom', 'templateQuoteAuthor', 'templateQuoteAuthorFont', 'templateQuoteAuthorFontCustom', 'templateMemeTop', 'templateMemeTopFont', 'templateMemeTopFontCustom', 'templateMemeBottom', 'templateMemeBottomFont', 'templateMemeBottomFontCustom', 'templateAccentColor', 'templateTextEffect', 'templateEffectColor', 'templateEffectOpacity', 'templateEffectBlur', 'templateEffectOffsetX', 'templateEffectOffsetY', 'templateEffectOutlineWidth', 'quoteWatermarkText', 'quoteWatermarkFont', 'quoteWatermarkFontCustom', 'quoteWatermarkColor', 'quoteWatermarkOpacity', 'quoteWatermarkX', 'quoteWatermarkY'],
+		template: ['templateName', 'customWidth', 'customHeight', 'templateBgColor', 'templateGradientColor', 'templateLayout', 'templateTitle', 'templateTitleMaxLineLengthMode', 'templateTitleMaxLineLength', 'templateTitleMinLineLengthMode', 'templateTitleMinLineLength', 'templateTitleFont', 'templateTitleFontCustom', 'templateTitleColor', 'templateSubtitle', 'templateSubtitleMaxLineLengthMode', 'templateSubtitleMaxLineLength', 'templateSubtitleMinLineLengthMode', 'templateSubtitleMinLineLength', 'templateSubtitleFont', 'templateSubtitleFontCustom', 'templateSubtitleColor', 'templateQuote', 'templateQuoteMaxLineLengthMode', 'templateQuoteMaxLineLength', 'templateQuoteMinLineLengthMode', 'templateQuoteMinLineLength', 'templateQuoteFont', 'templateQuoteFontCustom', 'templateQuoteAuthor', 'templateQuoteAuthorFont', 'templateQuoteAuthorFontCustom', 'templateMemeTop', 'templateMemeTopMaxLineLengthMode', 'templateMemeTopMaxLineLength', 'templateMemeTopMinLineLengthMode', 'templateMemeTopMinLineLength', 'templateMemeTopFont', 'templateMemeTopFontCustom', 'templateMemeBottom', 'templateMemeBottomMaxLineLengthMode', 'templateMemeBottomMaxLineLength', 'templateMemeBottomMinLineLengthMode', 'templateMemeBottomMinLineLength', 'templateMemeBottomFont', 'templateMemeBottomFontCustom', 'templateAccentColor', 'templateTextEffect', 'templateEffectColor', 'templateEffectOpacity', 'templateEffectBlur', 'templateEffectOffsetX', 'templateEffectOffsetY', 'templateEffectOutlineWidth', 'quoteWatermarkText', 'quoteWatermarkFont', 'quoteWatermarkFontCustom', 'quoteWatermarkColor', 'quoteWatermarkOpacity', 'quoteWatermarkX', 'quoteWatermarkY'],
 		text: [
 			'text', 'fontSize', 'fontFamily', 'fontColor', 'fontWeight', 'fontStyle', 'textAlign', 'justifyStretchLastLine',
-			'gravity', 'boxAnchor', 'positionX', 'positionY', 'lineHeight',
+			'gravity', 'boxAnchor', 'positionUnit', 'positionX', 'positionY', 'lineHeight',
 			'lineLengthMode', 'lineLength', 'lineLengthPercent', 'lineLengthPixels',
 			'minLineLengthMode', 'minLineLength', 'minLineLengthPercent', 'minLineLengthPixels',
 			'textOverflow',
@@ -2668,18 +2934,18 @@ async function buildTemplateInstance(op: IDataObject): Promise<sharp.Sharp> {
 	const bg = hexToRgba(op.templateBgColor as string ?? '#1a1a2e');
 	const layout = op.templateLayout as string ?? 'standard';
 	
-	const titleText = escapeSvg((op.templateTitle as string ?? '').trim());
-	const subtitleText = escapeSvg((op.templateSubtitle as string ?? '').trim());
+	const titleText = asString(op.templateTitle).trim();
+	const subtitleText = asString(op.templateSubtitle).trim();
 	const titleColor = op.templateTitleColor as string ?? '#ffffff';
 	const subtitleColor = op.templateSubtitleColor as string ?? '#cccccc';
 	const accentColor = op.templateAccentColor as string ?? '#e94560';
 	const gradientColor = op.templateGradientColor as string ?? accentColor;
 	
-	const quoteText = escapeSvg((op.templateQuote as string ?? '').trim());
-	const quoteAuthor = escapeSvg((op.templateQuoteAuthor as string ?? '').trim());
+	const quoteText = asString(op.templateQuote).trim();
+	const quoteAuthor = escapeSvg(asString(op.templateQuoteAuthor).trim());
 
-	const memeTop = escapeSvg((op.templateMemeTop as string ?? '').toUpperCase().trim());
-	const memeBottom = escapeSvg((op.templateMemeBottom as string ?? '').toUpperCase().trim());
+	const memeTop = asString(op.templateMemeTop).toUpperCase().trim();
+	const memeBottom = asString(op.templateMemeBottom).toUpperCase().trim();
 
 	// Fonts
 	const titleFont = op.templateTitleFont === 'custom' ? (op.templateTitleFontCustom as string || 'Arial, sans-serif') : (op.templateTitleFont as string || 'Arial, sans-serif');
@@ -2690,7 +2956,7 @@ async function buildTemplateInstance(op: IDataObject): Promise<sharp.Sharp> {
 	const memeBottomFont = op.templateMemeBottomFont === 'custom' ? (op.templateMemeBottomFontCustom as string || 'Impact, sans-serif') : (op.templateMemeBottomFont as string || 'Impact, sans-serif');
 
 	// Quote Watermark
-	const quoteWmText = escapeSvg((op.quoteWatermarkText as string ?? '').trim());
+	const quoteWmText = escapeSvg(asString(op.quoteWatermarkText).trim());
 	const quoteWmFont = op.quoteWatermarkFont === 'custom' ? (op.quoteWatermarkFontCustom as string || 'Arial, sans-serif') : (op.quoteWatermarkFont as string || 'Arial, sans-serif');
 	const quoteWmColor = op.quoteWatermarkColor as string ?? '#ffffff';
 	const quoteWmOpacity = (op.quoteWatermarkOpacity as number ?? 30) / 100;
@@ -2744,68 +3010,70 @@ async function buildTemplateInstance(op: IDataObject): Promise<sharp.Sharp> {
 
 	// Title Y position — roughly 45% from top
 	const titleY = Math.round(height * 0.45);
-	const subtitleY = titleY + titleFontSize * 1.6;
+	const titleLineHeight = titleFontSize * 1.2;
 
 	// Accent bar X and Y
 	let accentBarX = padding;
 	let accentBarY = titleY - titleFontSize * 1.4;
 
 	let titleSvg = '';
+	let titleLines: string[] = [];
 	if (titleText && layout === 'standard') {
+		titleLines = resolveTemplateWrappedLines(titleText, op, 'templateTitle', titleFontSize, width);
+		const titleTspans = titleLines
+			.map((l, i) => `<tspan x="${padding}" dy="${i === 0 ? 0 : titleLineHeight}">${escapeSvg(l)}</tspan>`)
+			.join('');
 		titleSvg = `
 		<text
 			x="${padding}" y="${titleY}"
-			font-family='${titleFont}'
+			${fontFamilyStyleAttr(titleFont)}
 			font-size="${titleFontSize}"
 			font-weight="bold"
 			fill="${titleColor}"
 			${effectAttrMain}
-		>${titleText}</text>`;
+		>${titleTspans}</text>`;
 	}
+
+	// Subtitle sits below however many lines the (now-wrappable) title actually
+	// took — a fixed single-line offset would overlap a wrapped multi-line title.
+	const subtitleY = titleY + Math.max(0, titleLines.length - 1) * titleLineHeight + titleFontSize * 1.6;
 
 	let subtitleSvg = '';
 	if (subtitleText && layout === 'standard') {
+		const subtitleLines = resolveTemplateWrappedLines(subtitleText, op, 'templateSubtitle', subtitleFontSize, width);
+		const subtitleLineHeight = subtitleFontSize * 1.3;
+		const subtitleTspans = subtitleLines
+			.map((l, i) => `<tspan x="${padding}" dy="${i === 0 ? 0 : subtitleLineHeight}">${escapeSvg(l)}</tspan>`)
+			.join('');
 		subtitleSvg = `
 		<text
 			x="${padding}" y="${subtitleY}"
-			font-family='${subtitleFont}'
+			${fontFamilyStyleAttr(subtitleFont)}
 			font-size="${subtitleFontSize}"
 			fill="${subtitleColor}"
 			opacity="0.9"
 			${effectAttrSub}
-		>${subtitleText}</text>`;
+		>${subtitleTspans}</text>`;
 	}
 
 	let quoteSvg = '';
 	if (quoteText && layout === 'quote') {
 		const qFontSize = Math.max(24, Math.round(width * 0.055));
-		const maxCharsPerLine = Math.floor(width / (qFontSize * 0.6));
-		const words = quoteText.split(' ');
-		const lines = [];
-		let curLine = '';
-		for (const w of words) {
-			if ((curLine + w).length > maxCharsPerLine) {
-				lines.push(curLine.trim());
-				curLine = w + ' ';
-			} else {
-				curLine += w + ' ';
-			}
-		}
-		if (curLine) lines.push(curLine.trim());
+		const lines = resolveTemplateWrappedLines(quoteText, op, 'templateQuote', qFontSize, width);
 
 		// Center vertically, accounting for multi-line
 		const startY = Math.round(height * 0.5) - ((lines.length - 1) * (qFontSize * 1.5) / 2);
-		
+
 		// Update accent bar to sit above the quote
 		accentBarX = padding;
 		accentBarY = startY - (qFontSize * 1.5);
 
-		const tspans = lines.map((l, i) => `<tspan x="${width / 2}" dy="${i === 0 ? 0 : qFontSize * 1.5}">${l}</tspan>`).join('');
-		
+		const tspans = lines.map((l, i) => `<tspan x="${width / 2}" dy="${i === 0 ? 0 : qFontSize * 1.5}">${escapeSvg(l)}</tspan>`).join('');
+
 		quoteSvg = `
 		<text
 			x="${width / 2}" y="${startY}"
-			font-family='${quoteFont}'
+			${fontFamilyStyleAttr(quoteFont)}
 			font-size="${qFontSize}"
 			font-style="italic"
 			fill="${titleColor}"
@@ -2820,7 +3088,7 @@ async function buildTemplateInstance(op: IDataObject): Promise<sharp.Sharp> {
 		authorSvg = `
 		<text
 			x="${width / 2}" y="${height - padding}"
-			font-family='${authorFont}'
+			${fontFamilyStyleAttr(authorFont)}
 			font-size="${aFontSize}"
 			fill="${subtitleColor}"
 			text-anchor="middle"
@@ -2838,29 +3106,41 @@ async function buildTemplateInstance(op: IDataObject): Promise<sharp.Sharp> {
 
 		// For meme layout, move the accent bar far above the text or hide it by placing it off-screen
 		accentBarY = -1000;
+		const memeLineHeight = mFontSize * 1.05;
 		if (memeTop) {
+			const topLines = resolveTemplateWrappedLines(memeTop, op, 'templateMemeTop', mFontSize, width);
+			const topTspans = topLines
+				.map((l, i) => `<tspan x="${width / 2}" dy="${i === 0 ? 0 : memeLineHeight}">${escapeSvg(l)}</tspan>`)
+				.join('');
 			memeSvg += `
 			<text
 				x="${width / 2}" y="${mFontSize * 1.1}"
-				font-family='${memeTopFont}'
+				${fontFamilyStyleAttr(memeTopFont)}
 				font-size="${mFontSize}"
 				font-weight="bold"
 				fill="${titleColor}"
 				${memeEffectAttr}
 				text-anchor="middle"
-			>${memeTop}</text>`;
+			>${topTspans}</text>`;
 		}
 		if (memeBottom) {
+			const bottomLines = resolveTemplateWrappedLines(memeBottom, op, 'templateMemeBottom', mFontSize, width);
+			// Text grows upward from the bottom anchor as more lines are added,
+			// so the last line still lands at the original single-line position.
+			const bottomStartY = height - mFontSize * 0.3 - (bottomLines.length - 1) * memeLineHeight;
+			const bottomTspans = bottomLines
+				.map((l, i) => `<tspan x="${width / 2}" dy="${i === 0 ? 0 : memeLineHeight}">${escapeSvg(l)}</tspan>`)
+				.join('');
 			memeSvg += `
 			<text
-				x="${width / 2}" y="${height - (mFontSize * 0.3)}"
-				font-family='${memeBottomFont}'
+				x="${width / 2}" y="${bottomStartY}"
+				${fontFamilyStyleAttr(memeBottomFont)}
 				font-size="${mFontSize}"
 				font-weight="bold"
 				fill="${titleColor}"
 				${memeEffectAttr}
 				text-anchor="middle"
-			>${memeBottom}</text>`;
+			>${bottomTspans}</text>`;
 		}
 	}
 
@@ -2872,7 +3152,7 @@ async function buildTemplateInstance(op: IDataObject): Promise<sharp.Sharp> {
 		quoteWatermarkSvg = `
 		<text
 			x="${wmX}" y="${wmY}"
-			font-family='${quoteWmFont}'
+			${fontFamilyStyleAttr(quoteWmFont)}
 			font-size="${wmFontSize}"
 			fill="${quoteWmColor}"
 			opacity="${quoteWmOpacity}"
@@ -2917,7 +3197,14 @@ ${customFilterSvg}
 		},
 	});
 
-	return base.composite([{ input: Buffer.from(svg), top: 0, left: 0 }]);
+	// Materialized immediately into a real buffer, wrapped in a fresh Sharp
+	// instance, rather than returned as a lazy pending composite. Sharp's
+	// `.composite()` does not accumulate across separate calls in a chain —
+	// each call replaces the pending overlay list rather than adding to it —
+	// so an un-materialized composite here would silently vanish the moment
+	// any later operation in a Multi-Step chain calls `.composite()` again
+	// (Text, Watermark, Draw, or another Composite step).
+	return sharp(await base.composite([{ input: Buffer.from(svg), top: 0, left: 0 }]).png().toBuffer());
 }
 
 // ---------------------------------------------------------------------------
@@ -2976,8 +3263,6 @@ async function applyOperation(
 		// hand for the offset).
 		const gravity = ci(op.compositeGravity, 'center');
 		const boxAnchor = ci(op.compositeBoxAnchor, 'center');
-		const offsetX = (op.positionX as number) ?? 0;
-		const offsetY = (op.positionY as number) ?? 0;
 
 		let anchorX = imgW / 2;
 		let anchorY = imgH / 2;
@@ -2991,6 +3276,7 @@ async function applyOperation(
 		} else if (gravity === 'southwest' || gravity === 'south' || gravity === 'southeast') {
 			anchorY = imgH;
 		}
+		const { x: offsetX, y: offsetY } = resolvePositionOffset(op, imgW, imgH, anchorX, anchorY);
 		const posX = anchorX + offsetX;
 		const posY = anchorY + offsetY;
 
@@ -3094,7 +3380,10 @@ async function applyOperation(
   ${panelSvgBody}
 </svg>`;
 
-		return instance.composite([{ input: Buffer.from(svg), top: 0, left: 0, blend: blendMode }]);
+		// Materialized immediately (see buildTemplateInstance for why) — this
+		// is what makes Composite safe to use more than once, or alongside
+		// Text/Watermark/Draw, within a single Multi-Step chain.
+		return sharp(await instance.composite([{ input: Buffer.from(svg), top: 0, left: 0, blend: blendMode }]).png().toBuffer());
 	}
 
 	if (operation === 'create') {
@@ -3147,7 +3436,8 @@ async function applyOperation(
 		}
 
 		const svg = `<svg width="${imgW}" height="${imgH}" xmlns="http://www.w3.org/2000/svg">${shapeSvg}</svg>`;
-		return instance.composite([{ input: Buffer.from(svg), top: 0, left: 0 }]);
+		// Materialized immediately (see buildTemplateInstance for why).
+		return sharp(await instance.composite([{ input: Buffer.from(svg), top: 0, left: 0 }]).png().toBuffer());
 	}
 
 	if (operation === 'flip') {
@@ -3227,9 +3517,9 @@ async function applyOperation(
 		const imgW = meta.width ?? 800;
 		const imgH = meta.height ?? 600;
 
-		const rawText = (op.text as string) ?? '';
+		const rawText = asString(op.text);
 		const fontSize = (op.fontSize as number) ?? 48;
-		const rawFontFamilyInput = ((op.fontFamily as string) || 'default').trim();
+		const rawFontFamilyInput = asString(op.fontFamily, 'default').trim() || 'default';
 		let fontFamily: string;
 		if (rawFontFamilyInput === 'default') {
 			fontFamily = 'Arial, sans-serif';
@@ -3355,13 +3645,14 @@ async function applyOperation(
 		const lineHeight = ((op.lineHeight as number) ?? 1.4) * fontSize;
 
 		// Gravity: a pure anchor point on the FULL image (not a sub-region).
-		// Position X/Y are pixel offsets from that anchor — positive X = right,
-		// positive Y = down, regardless of which gravity is chosen. Text Align
-		// controls how the text block is aligned horizontally around the final X.
+		// Position X/Y are offsets from that anchor, in pixels or percent
+		// (Position Unit): always +X = right, +Y = up, -X = left, -Y = down,
+		// the same for every Gravity — see resolvePositionOffset() above for
+		// how the reachable Percent range is derived per-Gravity. Text Align
+		// controls how the text block is aligned horizontally around the
+		// final X.
 		const gravity = ci(op.gravity, 'center');
 		const boxAnchor = ci(op.boxAnchor, 'center');
-		const offsetX = (op.positionX as number) ?? 0;
-		const offsetY = (op.positionY as number) ?? 0;
 
 		let anchorX = imgW / 2;
 		let anchorY = imgH / 2;
@@ -3376,6 +3667,7 @@ async function applyOperation(
 			anchorY = imgH;
 		}
 
+		const { x: offsetX, y: offsetY } = resolvePositionOffset(op, imgW, imgH, anchorX, anchorY);
 		const posX = anchorX + offsetX;
 		const posY = anchorY + offsetY;
 
@@ -3724,7 +4016,7 @@ async function applyOperation(
   ${glassLayer}
   <text
     x="${textX}" y="${firstLineBaselineY}"
-    font-family="${escapeSvg(fontFamily)}"
+    ${fontFamilyStyleAttr(fontFamily)}
     font-size="${fontSize}"
     font-weight="${fontWeight}"
     font-style="${fontStyle}"
@@ -3738,7 +4030,10 @@ async function applyOperation(
   ${decorationSvg}
 </svg>`;
 
-		return instance.composite([{ input: Buffer.from(svg), top: 0, left: 0 }]);
+		// Materialized immediately (see buildTemplateInstance for why) — this
+		// is the fix for Text overwriting whatever came before it (a Template,
+		// another Text step, Composite, etc.) in Multi-Step mode.
+		return sharp(await instance.composite([{ input: Buffer.from(svg), top: 0, left: 0 }]).png().toBuffer());
 	}
 
 	if (operation === 'tint') {
@@ -3802,11 +4097,12 @@ async function applyOperation(
 		const wmH = wmResized.info.height;
 		const wmProcessed = sharp(Buffer.from(rawPixels), { raw: { width: wmW, height: wmH, channels: 4 } }).png();
 
-		return instance.composite([{
+		// Materialized immediately (see buildTemplateInstance for why).
+		return sharp(await instance.composite([{
 			input: await wmProcessed.toBuffer(),
 			gravity: gravity as sharp.Gravity,
 			blend: 'over',
-		}]);
+		}]).png().toBuffer());
 	}
 
 	// Unknown operation — return unchanged (pass-through)

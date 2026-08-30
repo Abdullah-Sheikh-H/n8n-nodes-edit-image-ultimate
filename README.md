@@ -206,7 +206,8 @@ Positioning is split into four independent controls, matching how design tools l
 | Field | Details |
 |---|---|
 | **Gravity** | A fixed anchor point on the *full image* — North West, North, North East, West, Center, East, South West, South, South East. Center is always the exact middle of the image, regardless of text content. |
-| **Position X / Position Y** | Pixel offsets from the Gravity point. Positive X moves right, positive Y moves down — always, regardless of which Gravity is selected. |
+| **Position Unit** | Pixels, or **Percent** (default). See Position X / Position Y below for what 100%/0%/-100% mean. |
+| **Position X / Position Y** | Offset from the Gravity anchor, in a single unified system used the same way for every Gravity — no separate "behavior" to pick. Direction is always the same literal compass direction: **+X = right, -X = left, +Y = up, -Y = down**. `0` always means "exactly at the Gravity anchor, no offset." In Percent mode, `100%` reaches the canvas edge in that direction *from that Gravity's own anchor point* (via ray/box intersection) — but if the chosen Gravity already sits on that edge, there's no room left, so pushing further that way has no effect. Concretely: Center is symmetric in both axes (`-100`/`0`/`100` = left/center/right and bottom/center/top). North and South share Center's X range but their Y range is one-sided (North: `-100…0` = bottom…top-anchor; South: `0…100` = bottom-anchor…top). East and West are the mirror on X (East: `-100…0` = left…right-anchor; West: `0…100` = left-anchor…right), sharing Center's Y range. The four corners combine both one-sided ranges — e.g. North East: X `-100…0` (left…right-anchor), Y `-100…0` (bottom…top-anchor). |
 | **Box Anchor** | Which point of the *text box itself* lands on the final Gravity + Position point (same 9-point options). For example, Box Anchor = North means the box's top edge sits at that point and the box extends downward from it — this is what lets you pin text flush to an edge without the top being cut off. |
 | **Text Align** | Left / Center / Right / **Justify** — controls how each line sits *within* the box, independent of Box Anchor. Only visually matters for multi-line text where lines differ in length. |
 
@@ -284,6 +285,8 @@ The **Template** operation generates a fully composed image graphic from scratch
 | **Standard** | Title and Subtitle text — blog graphics, social posts, announcements. |
 | **Quote** | Large centered italic quote text with an author attribution at the bottom. |
 | **Meme** | Bold Impact-style text at the top and/or bottom of the image. |
+
+Title, Subtitle, Quote, Top Text, and Bottom Text each have their own **Max/Min Line Length** controls, directly below that text field — Characters, Percent of Image Width, or Pixels, same system as the Text operation's own Max/Min Line Length (see [§4.4](#44-line-wrapping-and-overflow)). Max defaults to 30 characters; Min defaults to Auto (no minimum).
 
 ### 5.2 Template Presets
 
@@ -380,7 +383,8 @@ Overlays a panel onto the image — an image, a solid colour, or a genuine frost
 | **Height Unit / Height** | Percent of Image Height, or Pixels. Default 100 (%). |
 | **Gravity** | 9-point anchor on the *base image* — same model as Text's Gravity. Default Center. |
 | **Box Anchor** | Which point of the panel itself lands on the Gravity + Position point — same model as Text's Box Anchor. Default Center. |
-| **Position X / Position Y** | Pixel offset from the Gravity point, default 0, 0. |
+| **Position Unit** | Pixels, or **Percent** (default). |
+| **Position X / Position Y** | Offset from the Gravity anchor, default 0, 0 — same unified system as Text's Position X/Y: +X = right, -X = left, +Y = up, -Y = down, always; `0` = the Gravity anchor; `100%`/`-100%` reaches whichever canvas edge is actually reachable from that Gravity in that direction (a Gravity already sitting on an edge has no room left that way). See the full per-Gravity breakdown in [§4.2](#42-positioning). |
 | **Enable Border** | → **Border Color**, **Border Width**. |
 | **Border Radius Unit** | Pixels, or Percent of the panel's own size. |
 | **Border Radius** | CSS `border-radius`-style shorthand, space-separated, clockwise from the top-left corner: 1 value = all four corners, 2 values = "top-left/bottom-right top-right/bottom-left", 3 values = "top-left top-right/bottom-left bottom-right", 4 values = "top-left top-right bottom-right bottom-left". E.g. `"20"` (all corners) or `"20 20 0 0"` (rounded top, square bottom). Default `"0"` (sharp corners). |
@@ -597,7 +601,7 @@ These are deliberate trade-offs, not bugs:
 
 See [CHANGELOG.md](CHANGELOG.md) for the full version history.
 
-**Latest (1.2.0):** Composite now supports Color and Frost (Glass) overlay types alongside Image, all three sharing configurable size, Gravity/Box Anchor positioning, borders, and CSS-shorthand border radius. Border Radius is now a CSS `border-radius`-style shorthand (per-corner control) for Composite and Text's Background alike. See [1.1.0] in the changelog for the Font Family dropdown (including file-path support), Decoration Style/Shadow features, the node icon, and the font-resolution root-cause fix.
+**Latest (1.3.0):** Fixed a critical bug where Multi-Step mode (or any chain of Text/Composite/Watermark/Draw operations) silently discarded earlier steps instead of layering them — each subsequent step now correctly builds on top of the last. Fixed font names with a space-then-digit (e.g. "Exo 2") silently rendering as a completely different fallback font. Rewrote Text and Composite's Position X/Y into a single unified system (no more separate "Position Behavior" mode) — direction is always the same compass direction regardless of Gravity, and the reachable range is computed per-Gravity from its own anchor point, so corner and edge Gravities finally behave correctly. Template's Title, Subtitle, Quote, Top Text, and Bottom Text now each have Max/Min Line Length wrapping controls, same as the Text operation. Also fixed a crash (`.trim is not a function`) that could occur when a string-typed field received a non-string value via expression mode. See [1.2.0] in the changelog for Composite's Color/Frost overlay types and CSS border-radius shorthand, and [1.1.0] for the Font Family dropdown, Decoration Style/Shadow features, and the node icon.
 
 ---
 
