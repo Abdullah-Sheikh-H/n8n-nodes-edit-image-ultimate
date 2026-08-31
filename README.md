@@ -270,7 +270,7 @@ Positioning is split into four independent controls, matching how design tools l
 
 ### 4.8 Case-Insensitivity and Expressions
 
-Every dropdown/options field on this node is case-insensitive when set via expression — `"Center"`, `"CENTER"`, and `"center"` all behave identically (Gravity, Box Anchor, Font Style, Text Decoration, Background Style, and every other options field), with whitespace trimmed automatically too.
+Every dropdown/options field on the entire node — not just the Text operation — is case-insensitive when set via expression: `"Center"`, `"CENTER"`, and `"center"` all behave identically, with whitespace trimmed automatically too. This covers every operation (Gravity, Box Anchor, Font Style, Text Decoration, Background Style, Blend Mode, Resize Fit, Draw Primitive, Watermark Gravity, Template Layout, the Operation selector itself, and so on), including the Template preset name (`"Instagram Post (1:1)"` matches regardless of case). The one field where this doesn't apply is Font Weight, since its values are plain numbers (e.g. `400`), not case-sensitive text.
 
 ---
 
@@ -320,11 +320,9 @@ Title, Subtitle, Quote, Top Text, and Bottom Text each have their own **Max/Min 
 
 ### 5.4 Font Controls
 
-Every text field has its own **Font** dropdown so you can mix and match typography per element: **Title Font**, **Subtitle Font**, **Quote Font**, **Quote Author Font**, **Meme Top Font**, **Meme Bottom Font**, **Watermark Font**.
+Every text field has its own **Font** dropdown so you can mix and match typography per element: **Title Font**, **Subtitle Font**, **Quote Font**, **Quote Author Font**, **Top Text Font**, **Bottom Text Font**, **Watermark Font**. As of 1.3.1, these are the exact same live dropdown as the Text operation's [Font Family](#41-content-and-font) — populated from `fc-list`, the real fonts actually installed on the server, not a fixed shortlist. To use a font that isn't in the list, click the **fx** expression icon and either type its family name directly, or type a real path to a `.ttf`/`.otf`/`.woff`/`.woff2`/`.ttc` file (with or without the extension) — it's registered with the server on the fly, same as Text's Font Family.
 
-Available fonts include Arial, Times New Roman, Georgia, Courier New, Verdana, Trebuchet MS, Impact, Playfair Display, Cormorant Garamond, Lora, Montserrat, Lato, Courier Prime, and more. Type any font name installed on your server directly via expression mode if it's not in the list.
-
-> Web fonts such as Playfair Display must be installed on the OS running your n8n server to render. System fonts like Arial and Georgia will always work.
+> Web fonts must actually be installed on the OS running your n8n server to appear in the dropdown or render correctly. System fonts (Arial, Georgia, etc.) will always be available on virtually any host.
 
 ### 5.5 Text Effects
 
@@ -601,7 +599,7 @@ These are deliberate trade-offs, not bugs:
 
 See [CHANGELOG.md](CHANGELOG.md) for the full version history.
 
-**Latest (1.3.0):** Fixed a critical bug where Multi-Step mode (or any chain of Text/Composite/Watermark/Draw operations) silently discarded earlier steps instead of layering them — each subsequent step now correctly builds on top of the last. Fixed font names with a space-then-digit (e.g. "Exo 2") silently rendering as a completely different fallback font. Rewrote Text and Composite's Position X/Y into a single unified system (no more separate "Position Behavior" mode) — direction is always the same compass direction regardless of Gravity, and the reachable range is computed per-Gravity from its own anchor point, so corner and edge Gravities finally behave correctly. Template's Title, Subtitle, Quote, Top Text, and Bottom Text now each have Max/Min Line Length wrapping controls, same as the Text operation. Also fixed a crash (`.trim is not a function`) that could occur when a string-typed field received a non-string value via expression mode. See [1.2.0] in the changelog for Composite's Color/Frost overlay types and CSS border-radius shorthand, and [1.1.0] for the Font Family dropdown, Decoration Style/Shadow features, and the node icon.
+**Latest (1.3.1):** Template's seven font fields (Title, Subtitle, Quote, Quote Author, Top Text, Bottom Text, Watermark) now use the same live, `fc-list`-backed font dropdown as the Text operation instead of a fixed 11-font shortlist, so every font actually installed on the server is available. Case-insensitivity — previously limited to a handful of fields — now applies to every dropdown/options field on the entire node (Blend Mode, Resize Fit, Draw Primitive, Watermark Gravity, Template Layout, the Template preset name, output Format, the Operation selector itself, and more). See [1.3.0] below for the Multi-Step composite-erasing fix, the unified Position X/Y system, the "Exo 2" font fix, and Template's line-length controls; [1.2.0] for Composite's Color/Frost overlay types and CSS border-radius shorthand; and [1.1.0] for the Font Family dropdown, Decoration Style/Shadow features, and the node icon.
 
 ---
 

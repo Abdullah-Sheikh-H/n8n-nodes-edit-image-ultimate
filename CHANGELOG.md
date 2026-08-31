@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here.
 
+## [1.3.1]
+
+### Fixed
+- **Template's seven font fields (Title, Subtitle, Quote, Quote Author, Top Text, Bottom Text, Watermark) were missing most of the server's actual installed fonts.** Each used a small hardcoded 11-font list plus a separate "(Custom)" text field for anything else. They now use the exact same live `getFonts` dropdown as the Text operation's Font Family — sourced from `fc-list`, so every font actually installed on the server shows up, with the same "fx" expression override for a typed name or a real font file path. The separate "(Custom)" fields are gone; typing a custom value now works the same way it already did for Text
+- **Case-insensitivity, previously only applied to a handful of fields (Gravity, Box Anchor, Font Style, Text Decoration, Background Style), is now applied to every dropdown/options field on the entire node** — Blend Mode, Resize Fit, Draw Primitive, Watermark Gravity, Template Layout, Template Text Effect, the Template preset name, the output Format, and the Operation selector itself all now accept any casing via expression (`"MULTIPLY"`, `"Multiply"`, `"multiply"` are equivalent), with whitespace trimmed automatically. Font Weight is the one exception, since its values are plain numbers
+
 ## [1.3.0]
 
 ### Fixed
