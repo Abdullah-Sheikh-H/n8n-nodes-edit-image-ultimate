@@ -102,8 +102,9 @@ n8n's built-in **Edit Image** node has 13 actions. This node has 23 — 10 opera
    - 6.16 [Shear](#616-shear)
    - 6.17 [Tint](#617-tint)
    - 6.18 [Transparent](#618-transparent)
-   - 6.19 [Add Watermark](#619-add-watermark)
-   - 6.20 [Get Information](#620-get-information)
+   - 6.19 [Trim](#619-trim)
+   - 6.20 [Add Watermark](#620-add-watermark)
+   - 6.21 [Get Information](#621-get-information)
 7. [Multi-Step Mode](#7-multi-step-mode)
 8. [Output Options](#8-output-options)
 9. [Quick Start Examples](#9-quick-start-examples)
@@ -170,6 +171,7 @@ Point the `N8N_CUSTOM_EXTENSIONS` environment variable at the package, or place 
 | Shear | Shear along X/Y via affine transform |
 | Tint | Colour hue overlay |
 | Transparent | Replace a colour with alpha transparency |
+| Trim | Crop away transparent edges, tight to the visible pixels |
 | Watermark | Opacity-controlled image overlay with gravity positioning |
 | Get Information | Return image metadata (size, format, DPI, channels) |
 | Multi Step | Chain any combination of the above in one node run |
@@ -500,7 +502,17 @@ Replaces a specific colour with alpha transparency (PNG output).
 | **Background Color to Remove** | Default `#ffffff`. The colour to replace with transparency. |
 | **Tolerance** | 0–255, default 30. How close a pixel's colour needs to be to the target colour to be made transparent. |
 
-### 6.19 Add Watermark
+### 6.19 Trim
+
+Crops the image to the bounding box of its non-transparent pixels, removing empty transparent space around the edges. Useful for cutouts, logos, and stickers exported with extra padding. Images without an alpha channel, and fully transparent images, are returned unchanged. Works in Multi-Step mode — pair it with **Transparent** to first remove a solid background, then trim to the subject.
+
+| Field | Details |
+|---|---|
+| **Sides** | Which edges to trim: any combination of Top, Bottom, Left, Right (default all four). Unselected edges stay exactly where they are — e.g. pick only Bottom to remove empty space under a subject while keeping its original framing. Via expression, an array or a comma-separated string (`"top,bottom"`) is accepted. |
+| **Alpha Threshold** | 0–254, default 0. Pixels with alpha at or below this value count as transparent. `0` trims only fully transparent pixels; raise it to also ignore faint halos or near-invisible anti-aliasing noise. |
+| **Padding** | Pixels, default 0. Transparent margin to keep around the visible content on the trimmed sides. Clamped to the original image bounds. |
+
+### 6.20 Add Watermark
 
 Overlays a second image (e.g. a logo) onto the source image, with opacity and positioning control.
 
@@ -511,7 +523,7 @@ Overlays a second image (e.g. a logo) onto the source image, with opacity and po
 | **Opacity (%)** | 0 (invisible) to 100 (fully opaque), default 50. |
 | **Max Size (% of Canvas)** | 1–100, default 20. The watermark is scaled so its longest side is this percentage of the canvas — keeps a logo proportionally sized regardless of the source image's dimensions. |
 
-### 6.20 Get Information
+### 6.21 Get Information
 
 Returns image metadata — width, height, format, DPI, and channel count. No additional fields.
 

@@ -774,6 +774,7 @@ const nodeOperations: INodePropertyOptions[] = [
 	{ name: 'Text', value: 'text', description: 'Render text onto the image', action: 'Add text' },
 	{ name: 'Tint', value: 'tint', description: 'Apply a colour tint', action: 'Tint image' },
 	{ name: 'Transparent', value: 'transparent', description: 'Make the image background transparent (PNG)', action: 'Make transparent' },
+	{ name: 'Trim', value: 'trim', description: 'Crop away fully transparent edges, tight to the visible pixels', action: 'Trim transparent edges' },
 	{ name: 'Watermark', value: 'watermark', description: 'Overlay a watermark image with configurable opacity', action: 'Add watermark' },
 ];
 
@@ -2344,6 +2345,42 @@ const nodeOperationOptions: INodeProperties[] = [
 	},
 
 	// ────────────────────────────────────────────────────────────────────────
+	// trim (crop to the bounding box of non-transparent pixels)
+	// ────────────────────────────────────────────────────────────────────────
+	{
+		displayName: 'Sides',
+		name: 'trimSides',
+		type: 'multiOptions',
+		options: [
+			{ name: 'Top', value: 'top' },
+			{ name: 'Bottom', value: 'bottom' },
+			{ name: 'Left', value: 'left' },
+			{ name: 'Right', value: 'right' },
+		],
+		default: ['top', 'bottom', 'left', 'right'],
+		displayOptions: { show: { operation: ['trim'] } },
+		description: 'Which edges to trim. Unselected edges stay exactly where they are. Via expression, an array or a comma-separated string (e.g. "top,bottom") is accepted.',
+	},
+	{
+		displayName: 'Alpha Threshold',
+		name: 'trimAlphaThreshold',
+		type: 'number',
+		typeOptions: { minValue: 0, maxValue: 254 },
+		default: 0,
+		displayOptions: { show: { operation: ['trim'] } },
+		description: 'Pixels with alpha at or below this value count as transparent (0 = only fully transparent pixels are trimmed)',
+	},
+	{
+		displayName: 'Padding',
+		name: 'trimPadding',
+		type: 'number',
+		typeOptions: { minValue: 0 },
+		default: 0,
+		displayOptions: { show: { operation: ['trim'] } },
+		description: 'Transparent margin in pixels to keep around the visible content on the trimmed sides (never extends past the original image edges)',
+	},
+
+	// ────────────────────────────────────────────────────────────────────────
 	// sharpen
 	// ────────────────────────────────────────────────────────────────────────
 	{
@@ -2873,6 +2910,7 @@ function buildSingleOpParams(ctx: IExecuteFunctions, operation: string, itemInde
 		],
 		tint: ['tintColor'],
 		transparent: ['transparentColor', 'tolerance'],
+		trim: ['trimSides', 'trimAlphaThreshold', 'trimPadding'],
 		watermark: ['watermarkProperty', 'watermarkGravity', 'watermarkOpacity', 'watermarkScale'],
 	};
 
@@ -4022,6 +4060,49 @@ async function applyOperation(
 		}
 
 		return sharp(Buffer.from(pixels), { raw: { width: w, height: h, channels: 4 } });
+	}
+
+	if (operation === 'trim') {
+		// Materialize the current pipeline so the bounding box reflects earlier
+		// Multi-Step operations, not the original input's dimensions.
+		const threshold = Math.min(254, Math.max(0, (op.trimAlphaThreshold as number) ?? 0));
+		const padding = Math.max(0, Math.round((op.trimPadding as number) ?? 0));
+		const rawSides = op.trimSides ?? ['top', 'bottom', 'left', 'right'];
+		const sides = new Set(
+			(Array.isArray(rawSides) ? rawSides : asString(rawSides).split(','))
+				.map((side) => ci(side)),
+		);
+		const { data, info } = await instance.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+		const { width: w, height: h, channels } = info;
+		const alphaOffset = channels - 1;
+
+		let minX = w;
+		let minY = h;
+		let maxX = -1;
+		let maxY = -1;
+		for (let y = 0; y < h; y++) {
+			const rowStart = y * w * channels;
+			for (let x = 0; x < w; x++) {
+				if (data[rowStart + x * channels + alphaOffset] > threshold) {
+					if (x < minX) minX = x;
+					if (x > maxX) maxX = x;
+					if (y < minY) minY = y;
+					if (y > maxY) maxY = y;
+				}
+			}
+		}
+
+		const raw = sharp(data, { raw: { width: w, height: h, channels } });
+
+		// Fully transparent image — nothing to anchor to, return unchanged
+		if (maxX < 0) return raw;
+
+		// Unselected sides keep the original edge
+		const left = sides.has('left') ? Math.max(0, minX - padding) : 0;
+		const top = sides.has('top') ? Math.max(0, minY - padding) : 0;
+		const right = sides.has('right') ? Math.min(w - 1, maxX + padding) : w - 1;
+		const bottom = sides.has('bottom') ? Math.min(h - 1, maxY + padding) : h - 1;
+		return raw.extract({ left, top, width: right - left + 1, height: bottom - top + 1 });
 	}
 
 	if (operation === 'watermark') {

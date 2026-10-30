@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+### Added
+- **Trim** operation: crops an image to the bounding box of its non-transparent pixels, removing empty transparent space around the edges. **Sides** picks which edges to trim (any combination of Top, Bottom, Left, Right — the rest stay untouched), **Alpha Threshold** (0–254) controls which pixels count as transparent, so faint halos can be ignored too, and **Padding** keeps an optional transparent margin around the content. Works in Multi-Step mode, and trims the image as it is at that step, not the original input
+
 ## [1.3.1]
 
 ### Fixed
