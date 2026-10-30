@@ -424,7 +424,8 @@ function hexToRgba(hex: string): { r: number; g: number; b: number; alpha: numbe
 	const r = parseInt(clean.substring(0, 2), 16) || 0;
 	const g = parseInt(clean.substring(2, 4), 16) || 0;
 	const b = parseInt(clean.substring(4, 6), 16) || 0;
-	const alpha = clean.length === 8 ? (parseInt(clean.substring(6, 8), 16) || 255) / 255 : 1;
+	const alphaByte = clean.length === 8 ? parseInt(clean.substring(6, 8), 16) : 255;
+	const alpha = Number.isNaN(alphaByte) ? 1 : alphaByte / 255;
 	return { r, g, b, alpha };
 }
 
@@ -756,6 +757,7 @@ const IMAGE_TEMPLATES: ImageTemplate[] = [
 const nodeOperations: INodePropertyOptions[] = [
 	{ name: 'Blur', value: 'blur', description: 'Apply Gaussian blur to the image', action: 'Blur image' },
 	{ name: 'Border', value: 'border', description: 'Add a solid-colour border', action: 'Add border' },
+	{ name: 'Canvas Size', value: 'canvasSize', description: 'Grow or shrink the canvas around the image, anchored like Photoshop (transparent fill by default)', action: 'Change canvas size' },
 	{ name: 'Composite', value: 'composite', description: 'Overlay one image on top of another', action: 'Composite image' },
 	{ name: 'Create', value: 'create', description: 'Generate a blank canvas', action: 'Create image' },
 	{ name: 'Crop', value: 'crop', description: 'Extract a region from the image', action: 'Crop image' },
@@ -774,6 +776,7 @@ const nodeOperations: INodePropertyOptions[] = [
 	{ name: 'Text', value: 'text', description: 'Render text onto the image', action: 'Add text' },
 	{ name: 'Tint', value: 'tint', description: 'Apply a colour tint', action: 'Tint image' },
 	{ name: 'Transparent', value: 'transparent', description: 'Make the image background transparent (PNG)', action: 'Make transparent' },
+	{ name: 'Trim', value: 'trim', description: 'Crop away fully transparent edges, tight to the visible pixels', action: 'Trim transparent edges' },
 	{ name: 'Watermark', value: 'watermark', description: 'Overlay a watermark image with configurable opacity', action: 'Add watermark' },
 ];
 
@@ -2193,6 +2196,78 @@ const nodeOperationOptions: INodeProperties[] = [
 	},
 
 	// ────────────────────────────────────────────────────────────────────────
+	// canvasSize (Photoshop-style canvas resize with anchor)
+	// ────────────────────────────────────────────────────────────────────────
+	{
+		displayName: 'Mode',
+		name: 'canvasSizeMode',
+		type: 'options',
+		options: [
+			{ name: 'Set Size', value: 'absolute', description: 'Width/Height are the new canvas size' },
+			{ name: 'Add / Remove', value: 'relative', description: 'Width/Height are added to the current size (negative values shrink)' },
+		],
+		default: 'absolute',
+		displayOptions: { show: { operation: ['canvasSize'] } },
+		description: 'How Width and Height are interpreted — same as Photoshop\'s "Relative" checkbox',
+	},
+	{
+		displayName: 'Unit',
+		name: 'canvasSizeUnit',
+		type: 'options',
+		options: [
+			{ name: 'Pixels', value: 'pixels' },
+			{ name: 'Percent', value: 'percent' },
+		],
+		default: 'pixels',
+		displayOptions: { show: { operation: ['canvasSize'] } },
+		description: 'Unit for Width and Height. Percent is relative to the current image size.',
+	},
+	{
+		displayName: 'Width',
+		name: 'canvasWidth',
+		type: 'number',
+		default: 0,
+		displayOptions: { show: { operation: ['canvasSize'] } },
+		description: 'Set Size: new canvas width (0 keeps the current width). Add / Remove: amount added to the width (negative crops).',
+	},
+	{
+		displayName: 'Height',
+		name: 'canvasHeight',
+		type: 'number',
+		default: 0,
+		displayOptions: { show: { operation: ['canvasSize'] } },
+		description: 'Set Size: new canvas height (0 keeps the current height). Add / Remove: amount added to the height (negative crops).',
+	},
+	{
+		displayName: 'Anchor',
+		name: 'canvasAnchor',
+		type: 'options',
+		options: [
+			{ name: 'Center', value: 'centre' },
+			{ name: 'Top Left', value: 'northwest' },
+			{ name: 'Top Center', value: 'north' },
+			{ name: 'Top Right', value: 'northeast' },
+			{ name: 'Middle Left', value: 'west' },
+			{ name: 'Middle Right', value: 'east' },
+			{ name: 'Bottom Left', value: 'southwest' },
+			{ name: 'Bottom Center', value: 'south' },
+			{ name: 'Bottom Right', value: 'southeast' },
+		],
+		default: 'centre',
+		displayOptions: { show: { operation: ['canvasSize'] } },
+		description: 'Where the original image sits on the new canvas. New space is added (or cropped) on the opposite sides.',
+	},
+	{
+		displayName: 'Background Color',
+		name: 'canvasColor',
+		type: 'color',
+		default: '#00000000',
+		typeOptions: { showAlpha: true },
+		displayOptions: { show: { operation: ['canvasSize'] } },
+		description: 'Fill colour for added space. Default is fully transparent — use PNG, WebP, AVIF or TIFF output to keep the transparency.',
+	},
+
+	// ────────────────────────────────────────────────────────────────────────
 	// crop
 	// ────────────────────────────────────────────────────────────────────────
 	{
@@ -2240,18 +2315,18 @@ const nodeOperationOptions: INodeProperties[] = [
 		name: 'width',
 		type: 'number',
 		default: 1080,
-		typeOptions: { minValue: 1 },
+		typeOptions: { minValue: 0 },
 		displayOptions: { show: { operation: ['resize'] } },
-		description: 'Target width in pixels',
+		description: 'Target width in pixels. 0 = auto: calculated from Height, keeping the aspect ratio.',
 	},
 	{
 		displayName: 'Height',
 		name: 'height',
 		type: 'number',
 		default: 1080,
-		typeOptions: { minValue: 1 },
+		typeOptions: { minValue: 0 },
 		displayOptions: { show: { operation: ['resize'] } },
-		description: 'Target height in pixels',
+		description: 'Target height in pixels. 0 = auto: calculated from Width, keeping the aspect ratio.',
 	},
 	{
 		displayName: 'Fit',
@@ -2266,7 +2341,7 @@ const nodeOperationOptions: INodeProperties[] = [
 		],
 		default: 'cover',
 		displayOptions: { show: { operation: ['resize'] } },
-		description: 'How to fit the image into the target dimensions',
+		description: 'How to fit the image into the target dimensions. Ignored when Width or Height is 0 (auto) — the aspect ratio is always kept then.',
 	},
 	{
 		displayName: 'Background Color (for Contain)',
@@ -2341,6 +2416,42 @@ const nodeOperationOptions: INodeProperties[] = [
 		default: 30,
 		displayOptions: { show: { operation: ['transparent'] } },
 		description: 'Colour matching tolerance (0 = exact match only, 255 = match everything)',
+	},
+
+	// ────────────────────────────────────────────────────────────────────────
+	// trim (crop to the bounding box of non-transparent pixels)
+	// ────────────────────────────────────────────────────────────────────────
+	{
+		displayName: 'Sides',
+		name: 'trimSides',
+		type: 'multiOptions',
+		options: [
+			{ name: 'Top', value: 'top' },
+			{ name: 'Bottom', value: 'bottom' },
+			{ name: 'Left', value: 'left' },
+			{ name: 'Right', value: 'right' },
+		],
+		default: ['top', 'bottom', 'left', 'right'],
+		displayOptions: { show: { operation: ['trim'] } },
+		description: 'Which edges to trim. Unselected edges stay exactly where they are. Via expression, an array or a comma-separated string (e.g. "top,bottom") is accepted.',
+	},
+	{
+		displayName: 'Alpha Threshold',
+		name: 'trimAlphaThreshold',
+		type: 'number',
+		typeOptions: { minValue: 0, maxValue: 254 },
+		default: 0,
+		displayOptions: { show: { operation: ['trim'] } },
+		description: 'Pixels with alpha at or below this value count as transparent (0 = only fully transparent pixels are trimmed)',
+	},
+	{
+		displayName: 'Padding',
+		name: 'trimPadding',
+		type: 'number',
+		typeOptions: { minValue: 0 },
+		default: 0,
+		displayOptions: { show: { operation: ['trim'] } },
+		description: 'Transparent margin in pixels to keep around the visible content on the trimmed sides (never extends past the original image edges)',
 	},
 
 	// ────────────────────────────────────────────────────────────────────────
@@ -2837,6 +2948,8 @@ function buildSingleOpParams(ctx: IExecuteFunctions, operation: string, itemInde
 	const paramNames: Record<string, string[]> = {
 		blur: ['sigma'],
 		border: ['borderColor', 'borderWidth', 'borderHeight'],
+		// Keyed lowercase: `operation` has already been through ci() by this point
+		canvassize: ['canvasSizeMode', 'canvasSizeUnit', 'canvasWidth', 'canvasHeight', 'canvasAnchor', 'canvasColor'],
 		composite: [
 			'compositeOverlayType', 'dataPropertyNameComposite',
 			'compositeColor', 'compositeColorOpacity',
@@ -2880,6 +2993,7 @@ function buildSingleOpParams(ctx: IExecuteFunctions, operation: string, itemInde
 		],
 		tint: ['tintColor'],
 		transparent: ['transparentColor', 'tolerance'],
+		trim: ['trimSides', 'trimAlphaThreshold', 'trimPadding'],
 		watermark: ['watermarkProperty', 'watermarkGravity', 'watermarkOpacity', 'watermarkScale'],
 	};
 
@@ -3382,6 +3496,52 @@ async function applyOperation(
 		return instance;
 	}
 
+	if (operation === 'canvassize') {
+		// Materialize so the current size reflects earlier Multi-Step operations
+		const { data, info } = await instance.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+		const { width: w, height: h, channels } = info;
+
+		const relative = ci(op.canvasSizeMode, 'absolute') === 'relative';
+		const percent = ci(op.canvasSizeUnit, 'pixels') === 'percent';
+		const resolveSize = (value: unknown, current: number): number => {
+			const v = Number(value) || 0;
+			const amount = percent ? Math.round((current * v) / 100) : Math.round(v);
+			if (relative) return current + amount;
+			return amount === 0 ? current : amount;
+		};
+		const newW = resolveSize(op.canvasWidth, w);
+		const newH = resolveSize(op.canvasHeight, h);
+		if (newW < 1 || newH < 1) {
+			throw new Error(`Canvas Size would produce a ${newW}x${newH} image — width and height must be at least 1 pixel`);
+		}
+
+		// Offset of the original image's top-left corner on the new canvas
+		const anchor = ci(op.canvasAnchor, 'centre');
+		const offset = (free: number, start: boolean, end: boolean) =>
+			start ? 0 : end ? free : Math.round(free / 2);
+		const dx = offset(newW - w, anchor.endsWith('west'), anchor.endsWith('east'));
+		const dy = offset(newH - h, anchor.startsWith('north'), anchor.startsWith('south'));
+
+		// Part of the original that stays visible (canvas smaller than image crops it)
+		const visLeft = Math.max(0, dx);
+		const visTop = Math.max(0, dy);
+		const visW = Math.min(newW, dx + w) - visLeft;
+		const visH = Math.min(newH, dy + h) - visTop;
+
+		const col = hexToRgba((op.canvasColor as string) ?? '#00000000');
+		const cropped = await sharp(data, { raw: { width: w, height: h, channels } })
+			.extract({ left: visLeft - dx, top: visTop - dy, width: visW, height: visH })
+			.raw()
+			.toBuffer();
+		return sharp(cropped, { raw: { width: visW, height: visH, channels } }).extend({
+			left: visLeft,
+			top: visTop,
+			right: newW - visLeft - visW,
+			bottom: newH - visTop - visH,
+			background: { r: col.r, g: col.g, b: col.b, alpha: col.alpha },
+		});
+	}
+
 	if (operation === 'crop') {
 		return instance.extract({
 			left: (op.positionX as number) ?? 0,
@@ -3457,10 +3617,24 @@ async function applyOperation(
 		};
 		const fit = fitMap[ci(op.resizeOption, 'cover')] ?? 'cover';
 		const bg = op.resizeBackground ? hexToRgba(op.resizeBackground as string) : { r: 0, g: 0, b: 0, alpha: 1 };
-		return instance.resize({
-			width: (op.width as number) ?? 1080,
-			height: (op.height as number) ?? 1080,
-			fit,
+		// 0 or empty = auto: sharp derives the missing side from the aspect ratio
+		const dimension = (value: unknown): number | undefined => {
+			const n = Math.round(value === undefined ? 1080 : Number(value));
+			return Number.isFinite(n) && n > 0 ? n : undefined;
+		};
+		const width = dimension(op.width);
+		const height = dimension(op.height);
+		if (width === undefined && height === undefined) {
+			throw new Error('Resize needs at least one of Width or Height — both are 0 (auto)');
+		}
+		// Materialize first: sharp merges chained resize() calls, so in Multi-Step
+		// a later auto side would silently inherit the earlier step's value.
+		const { data, info } = await instance.raw().toBuffer({ resolveWithObject: true });
+		return sharp(data, { raw: { width: info.width, height: info.height, channels: info.channels } }).resize({
+			width,
+			height,
+			// With one side auto, only an aspect-preserving fit makes sense ('fill' would keep the original size on that side)
+			fit: width === undefined || height === undefined ? 'inside' : fit,
 			background: { r: bg.r, g: bg.g, b: bg.b, alpha: bg.alpha },
 			withoutEnlargement: false,
 		});
@@ -4029,6 +4203,49 @@ async function applyOperation(
 		}
 
 		return sharp(Buffer.from(pixels), { raw: { width: w, height: h, channels: 4 } });
+	}
+
+	if (operation === 'trim') {
+		// Materialize the current pipeline so the bounding box reflects earlier
+		// Multi-Step operations, not the original input's dimensions.
+		const threshold = Math.min(254, Math.max(0, (op.trimAlphaThreshold as number) ?? 0));
+		const padding = Math.max(0, Math.round((op.trimPadding as number) ?? 0));
+		const rawSides = op.trimSides ?? ['top', 'bottom', 'left', 'right'];
+		const sides = new Set(
+			(Array.isArray(rawSides) ? rawSides : asString(rawSides).split(','))
+				.map((side) => ci(side)),
+		);
+		const { data, info } = await instance.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+		const { width: w, height: h, channels } = info;
+		const alphaOffset = channels - 1;
+
+		let minX = w;
+		let minY = h;
+		let maxX = -1;
+		let maxY = -1;
+		for (let y = 0; y < h; y++) {
+			const rowStart = y * w * channels;
+			for (let x = 0; x < w; x++) {
+				if (data[rowStart + x * channels + alphaOffset] > threshold) {
+					if (x < minX) minX = x;
+					if (x > maxX) maxX = x;
+					if (y < minY) minY = y;
+					if (y > maxY) maxY = y;
+				}
+			}
+		}
+
+		const raw = sharp(data, { raw: { width: w, height: h, channels } });
+
+		// Fully transparent image — nothing to anchor to, return unchanged
+		if (maxX < 0) return raw;
+
+		// Unselected sides keep the original edge
+		const left = sides.has('left') ? Math.max(0, minX - padding) : 0;
+		const top = sides.has('top') ? Math.max(0, minY - padding) : 0;
+		const right = sides.has('right') ? Math.min(w - 1, maxX + padding) : w - 1;
+		const bottom = sides.has('bottom') ? Math.min(h - 1, maxY + padding) : h - 1;
+		return raw.extract({ left, top, width: right - left + 1, height: bottom - top + 1 });
 	}
 
 	if (operation === 'watermark') {
