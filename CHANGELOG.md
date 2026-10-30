@@ -7,9 +7,11 @@ All notable changes to this project are documented here.
 ### Added
 - **Canvas Size** operation — Photoshop-style canvas resize. Set a new size or add/remove from the current one (**Mode**), in pixels or percent (**Unit**), with a 9-point **Anchor** that decides where the original image sits. Growing adds empty space, shrinking crops. **Background Color** defaults to fully transparent. Works in Multi-Step mode on the image as it is at that step
 - **Trim** operation: crops an image to the bounding box of its non-transparent pixels, removing empty transparent space around the edges. **Sides** picks which edges to trim (any combination of Top, Bottom, Left, Right — the rest stay untouched), **Alpha Threshold** (0–254) controls which pixels count as transparent, so faint halos can be ignored too, and **Padding** keeps an optional transparent margin around the content. Works in Multi-Step mode, and trims the image as it is at that step, not the original input
+- **Resize**: Width or Height can now be `0` (or empty) to mean **auto** — the missing side is calculated from the other, keeping the aspect ratio. Previously both were required (minimum 1). Existing values behave exactly as before
 
 ### Fixed
 - **Fully transparent colours (`#RRGGBB00`) were treated as fully opaque.** The hex parser used `parseInt(...) || 255` for the alpha byte, so an alpha of `00` (which parses to `0`, a falsy value) fell through to `255`. Any colour field set to a fully transparent value — Create background, Border color, Rotate background, and so on — rendered as a solid colour instead. Alpha `00` now correctly yields a fully transparent colour
+- **Multi-Step: chained Resize steps didn't compose.** `sharp` merges consecutive `.resize()` calls on the same pipeline instead of applying them one after another, so a later Resize step would silently keep options from an earlier one. Resize now materializes the current image first, so each step resizes the result of the previous step
 
 ## [1.3.1]
 
