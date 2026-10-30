@@ -2860,9 +2860,16 @@ export class EditImagePlus implements INodeType {
 					sharpInstance = sharp(buf);
 				}
 
-				// Apply each operation
-				for (const op of operations) {
-					sharpInstance = await applyOperation(this, sharpInstance, op, itemIndex);
+				// Apply each operation. Between steps, materialize the result to raw
+				// pixels: sharp merges repeated calls of the same kind on one pipeline
+				// (extend, rotate, resize, ...) instead of applying them in sequence,
+				// so without this a later step silently replaces an earlier one.
+				for (let opIndex = 0; opIndex < operations.length; opIndex++) {
+					sharpInstance = await applyOperation(this, sharpInstance, operations[opIndex], itemIndex);
+					if (opIndex < operations.length - 1) {
+						const { data, info } = await sharpInstance.raw().toBuffer({ resolveWithObject: true });
+						sharpInstance = sharp(data, { raw: { width: info.width, height: info.height, channels: info.channels } });
+					}
 				}
 
 				// ── Output format ───────────────────────────────────────────

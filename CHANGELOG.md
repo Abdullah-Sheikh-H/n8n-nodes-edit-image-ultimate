@@ -12,6 +12,7 @@ All notable changes to this project are documented here.
 ### Fixed
 - **Fully transparent colours (`#RRGGBB00`) were treated as fully opaque.** The hex parser used `parseInt(...) || 255` for the alpha byte, so an alpha of `00` (which parses to `0`, a falsy value) fell through to `255`. Any colour field set to a fully transparent value — Create background, Border color, Rotate background, and so on — rendered as a solid colour instead. Alpha `00` now correctly yields a fully transparent colour
 - **Multi-Step: chained Resize steps didn't compose.** `sharp` merges consecutive `.resize()` calls on the same pipeline instead of applying them one after another, so a later Resize step would silently keep options from an earlier one. Resize now materializes the current image first, so each step resizes the result of the previous step
+- **Multi-Step: a later step could silently undo an earlier one.** `sharp` merges repeated calls of the same kind on one pipeline instead of applying them in sequence, so for example *Border → Border* kept only the last border, *Rotate 90° → Rotate 90°* rotated only once, and anything that ends in `extend` (like a Border) wiped out space added by an earlier step. The image is now materialized between Multi-Step operations, so each step works on the actual result of the previous one. This also fixes *Resize → Transparent* crashing with `VipsImage: memory area too small`, because Transparent read the original input size instead of the resized one
 
 ## [1.3.1]
 
