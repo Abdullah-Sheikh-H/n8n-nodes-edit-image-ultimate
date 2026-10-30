@@ -424,7 +424,8 @@ function hexToRgba(hex: string): { r: number; g: number; b: number; alpha: numbe
 	const r = parseInt(clean.substring(0, 2), 16) || 0;
 	const g = parseInt(clean.substring(2, 4), 16) || 0;
 	const b = parseInt(clean.substring(4, 6), 16) || 0;
-	const alpha = clean.length === 8 ? (parseInt(clean.substring(6, 8), 16) || 255) / 255 : 1;
+	const alphaByte = clean.length === 8 ? parseInt(clean.substring(6, 8), 16) : 255;
+	const alpha = Number.isNaN(alphaByte) ? 1 : alphaByte / 255;
 	return { r, g, b, alpha };
 }
 
@@ -756,6 +757,7 @@ const IMAGE_TEMPLATES: ImageTemplate[] = [
 const nodeOperations: INodePropertyOptions[] = [
 	{ name: 'Blur', value: 'blur', description: 'Apply Gaussian blur to the image', action: 'Blur image' },
 	{ name: 'Border', value: 'border', description: 'Add a solid-colour border', action: 'Add border' },
+	{ name: 'Canvas Size', value: 'canvasSize', description: 'Grow or shrink the canvas around the image, anchored like Photoshop (transparent fill by default)', action: 'Change canvas size' },
 	{ name: 'Composite', value: 'composite', description: 'Overlay one image on top of another', action: 'Composite image' },
 	{ name: 'Create', value: 'create', description: 'Generate a blank canvas', action: 'Create image' },
 	{ name: 'Crop', value: 'crop', description: 'Extract a region from the image', action: 'Crop image' },
@@ -2194,6 +2196,78 @@ const nodeOperationOptions: INodeProperties[] = [
 	},
 
 	// ────────────────────────────────────────────────────────────────────────
+	// canvasSize (Photoshop-style canvas resize with anchor)
+	// ────────────────────────────────────────────────────────────────────────
+	{
+		displayName: 'Mode',
+		name: 'canvasSizeMode',
+		type: 'options',
+		options: [
+			{ name: 'Set Size', value: 'absolute', description: 'Width/Height are the new canvas size' },
+			{ name: 'Add / Remove', value: 'relative', description: 'Width/Height are added to the current size (negative values shrink)' },
+		],
+		default: 'absolute',
+		displayOptions: { show: { operation: ['canvasSize'] } },
+		description: 'How Width and Height are interpreted — same as Photoshop\'s "Relative" checkbox',
+	},
+	{
+		displayName: 'Unit',
+		name: 'canvasSizeUnit',
+		type: 'options',
+		options: [
+			{ name: 'Pixels', value: 'pixels' },
+			{ name: 'Percent', value: 'percent' },
+		],
+		default: 'pixels',
+		displayOptions: { show: { operation: ['canvasSize'] } },
+		description: 'Unit for Width and Height. Percent is relative to the current image size.',
+	},
+	{
+		displayName: 'Width',
+		name: 'canvasWidth',
+		type: 'number',
+		default: 0,
+		displayOptions: { show: { operation: ['canvasSize'] } },
+		description: 'Set Size: new canvas width (0 keeps the current width). Add / Remove: amount added to the width (negative crops).',
+	},
+	{
+		displayName: 'Height',
+		name: 'canvasHeight',
+		type: 'number',
+		default: 0,
+		displayOptions: { show: { operation: ['canvasSize'] } },
+		description: 'Set Size: new canvas height (0 keeps the current height). Add / Remove: amount added to the height (negative crops).',
+	},
+	{
+		displayName: 'Anchor',
+		name: 'canvasAnchor',
+		type: 'options',
+		options: [
+			{ name: 'Center', value: 'centre' },
+			{ name: 'Top Left', value: 'northwest' },
+			{ name: 'Top Center', value: 'north' },
+			{ name: 'Top Right', value: 'northeast' },
+			{ name: 'Middle Left', value: 'west' },
+			{ name: 'Middle Right', value: 'east' },
+			{ name: 'Bottom Left', value: 'southwest' },
+			{ name: 'Bottom Center', value: 'south' },
+			{ name: 'Bottom Right', value: 'southeast' },
+		],
+		default: 'centre',
+		displayOptions: { show: { operation: ['canvasSize'] } },
+		description: 'Where the original image sits on the new canvas. New space is added (or cropped) on the opposite sides.',
+	},
+	{
+		displayName: 'Background Color',
+		name: 'canvasColor',
+		type: 'color',
+		default: '#00000000',
+		typeOptions: { showAlpha: true },
+		displayOptions: { show: { operation: ['canvasSize'] } },
+		description: 'Fill colour for added space. Default is fully transparent — use PNG, WebP, AVIF or TIFF output to keep the transparency.',
+	},
+
+	// ────────────────────────────────────────────────────────────────────────
 	// crop
 	// ────────────────────────────────────────────────────────────────────────
 	{
@@ -2867,6 +2941,8 @@ function buildSingleOpParams(ctx: IExecuteFunctions, operation: string, itemInde
 	const paramNames: Record<string, string[]> = {
 		blur: ['sigma'],
 		border: ['borderColor', 'borderWidth', 'borderHeight'],
+		// Keyed lowercase: `operation` has already been through ci() by this point
+		canvassize: ['canvasSizeMode', 'canvasSizeUnit', 'canvasWidth', 'canvasHeight', 'canvasAnchor', 'canvasColor'],
 		composite: [
 			'compositeOverlayType', 'dataPropertyNameComposite',
 			'compositeColor', 'compositeColorOpacity',
@@ -3411,6 +3487,52 @@ async function applyOperation(
 	if (operation === 'template') {
 		// Already handled before the loop — skip
 		return instance;
+	}
+
+	if (operation === 'canvassize') {
+		// Materialize so the current size reflects earlier Multi-Step operations
+		const { data, info } = await instance.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+		const { width: w, height: h, channels } = info;
+
+		const relative = ci(op.canvasSizeMode, 'absolute') === 'relative';
+		const percent = ci(op.canvasSizeUnit, 'pixels') === 'percent';
+		const resolveSize = (value: unknown, current: number): number => {
+			const v = Number(value) || 0;
+			const amount = percent ? Math.round((current * v) / 100) : Math.round(v);
+			if (relative) return current + amount;
+			return amount === 0 ? current : amount;
+		};
+		const newW = resolveSize(op.canvasWidth, w);
+		const newH = resolveSize(op.canvasHeight, h);
+		if (newW < 1 || newH < 1) {
+			throw new Error(`Canvas Size would produce a ${newW}x${newH} image — width and height must be at least 1 pixel`);
+		}
+
+		// Offset of the original image's top-left corner on the new canvas
+		const anchor = ci(op.canvasAnchor, 'centre');
+		const offset = (free: number, start: boolean, end: boolean) =>
+			start ? 0 : end ? free : Math.round(free / 2);
+		const dx = offset(newW - w, anchor.endsWith('west'), anchor.endsWith('east'));
+		const dy = offset(newH - h, anchor.startsWith('north'), anchor.startsWith('south'));
+
+		// Part of the original that stays visible (canvas smaller than image crops it)
+		const visLeft = Math.max(0, dx);
+		const visTop = Math.max(0, dy);
+		const visW = Math.min(newW, dx + w) - visLeft;
+		const visH = Math.min(newH, dy + h) - visTop;
+
+		const col = hexToRgba((op.canvasColor as string) ?? '#00000000');
+		const cropped = await sharp(data, { raw: { width: w, height: h, channels } })
+			.extract({ left: visLeft - dx, top: visTop - dy, width: visW, height: visH })
+			.raw()
+			.toBuffer();
+		return sharp(cropped, { raw: { width: visW, height: visH, channels } }).extend({
+			left: visLeft,
+			top: visTop,
+			right: newW - visLeft - visW,
+			bottom: newH - visTop - visH,
+			background: { r: col.r, g: col.g, b: col.b, alpha: col.alpha },
+		});
 	}
 
 	if (operation === 'crop') {

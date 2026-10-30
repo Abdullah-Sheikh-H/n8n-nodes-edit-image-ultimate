@@ -86,25 +86,26 @@ n8n's built-in **Edit Image** node has 13 actions. This node has 23 — 10 opera
 6. [Image Editing Operations](#6-image-editing-operations)
    - 6.1 [Blur](#61-blur)
    - 6.2 [Border](#62-border)
-   - 6.3 [Composite](#63-composite)
-   - 6.4 [Create](#64-create)
-   - 6.5 [Crop](#65-crop)
-   - 6.6 [Draw](#66-draw)
-   - 6.7 [Flip](#67-flip)
-   - 6.8 [Flop](#68-flop)
-   - 6.9 [Apply Gamma](#69-apply-gamma)
-   - 6.10 [Convert to Grayscale](#610-convert-to-grayscale)
-   - 6.11 [Normalize](#611-normalize)
-   - 6.12 [Resize](#612-resize)
-   - 6.13 [Rotate](#613-rotate)
-   - 6.14 [Apply Sepia Tone](#614-apply-sepia-tone)
-   - 6.15 [Sharpen](#615-sharpen)
-   - 6.16 [Shear](#616-shear)
-   - 6.17 [Tint](#617-tint)
-   - 6.18 [Transparent](#618-transparent)
-   - 6.19 [Trim](#619-trim)
-   - 6.20 [Add Watermark](#620-add-watermark)
-   - 6.21 [Get Information](#621-get-information)
+   - 6.3 [Canvas Size](#63-canvas-size)
+   - 6.4 [Composite](#64-composite)
+   - 6.5 [Create](#65-create)
+   - 6.6 [Crop](#66-crop)
+   - 6.7 [Draw](#67-draw)
+   - 6.8 [Flip](#68-flip)
+   - 6.9 [Flop](#69-flop)
+   - 6.10 [Apply Gamma](#610-apply-gamma)
+   - 6.11 [Convert to Grayscale](#611-convert-to-grayscale)
+   - 6.12 [Normalize](#612-normalize)
+   - 6.13 [Resize](#613-resize)
+   - 6.14 [Rotate](#614-rotate)
+   - 6.15 [Apply Sepia Tone](#615-apply-sepia-tone)
+   - 6.16 [Sharpen](#616-sharpen)
+   - 6.17 [Shear](#617-shear)
+   - 6.18 [Tint](#618-tint)
+   - 6.19 [Transparent](#619-transparent)
+   - 6.20 [Trim](#620-trim)
+   - 6.21 [Add Watermark](#621-add-watermark)
+   - 6.22 [Get Information](#622-get-information)
 7. [Multi-Step Mode](#7-multi-step-mode)
 8. [Output Options](#8-output-options)
 9. [Quick Start Examples](#9-quick-start-examples)
@@ -155,6 +156,7 @@ Point the `N8N_CUSTOM_EXTENSIONS` environment variable at the package, or place 
 | [Template](#5-template-operation) | Generates a complete social-media graphic from a preset — no source image needed |
 | Blur | Gaussian blur, configurable sigma |
 | Border | Solid-colour padding/border |
+| Canvas Size | Photoshop-style canvas resize with 9-point anchor, transparent fill by default |
 | Composite | Overlay an image, colour panel, or frosted-glass panel — 24 blend modes |
 | Create | Blank canvas in a solid colour |
 | Crop | Extract a region by position and size |
@@ -366,7 +368,24 @@ Adds a solid-colour border/padding around the image.
 | **Border Height** | Pixels, default 20. Top and bottom border height. |
 | **Border Color** | Default `#000000`. |
 
-### 6.3 Composite
+### 6.3 Canvas Size
+
+Changes the canvas size around the image without scaling it — like Photoshop's **Image → Canvas Size**. Growing the canvas adds empty space; shrinking it crops. The **Anchor** decides where the original image sits, so new space is added on the opposite sides.
+
+| Field | Details |
+|---|---|
+| **Mode** | **Set Size** (default): Width/Height are the new canvas size, `0` keeps the current value. **Add / Remove**: Width/Height are added to the current size — negative values shrink (same as Photoshop's "Relative" checkbox). |
+| **Unit** | Pixels (default) or Percent of the current image size. |
+| **Width** / **Height** | New size, or amount to add/remove, depending on Mode. Default `0` (no change). |
+| **Anchor** | 9-point placement of the original image: Center (default), Top Left/Center/Right, Middle Left/Right, Bottom Left/Center/Right. E.g. Middle Left + wider canvas adds all new space on the right. |
+| **Background Color** | Default `#00000000` (fully transparent). Fill for the added space. JPEG and GIF can't hold transparency, so set **Output Options → Format** to PNG/WebP/AVIF/TIFF when the input is a JPEG and you want a transparent fill. |
+
+**Examples:**
+- Add 20px of transparent space on every side → Mode *Add / Remove*, Width `40`, Height `40`, Anchor *Center*
+- Make a 1080×1080 square with the image pinned to the top → Mode *Set Size*, Width `1080`, Height `1080`, Anchor *Top Center*
+- Double the width, extending only to the right → Mode *Add / Remove*, Unit *Percent*, Width `100`, Anchor *Middle Left*
+
+### 6.4 Composite
 
 Overlays a panel onto the image — an image, a solid colour, or a genuine frosted-glass panel — using any of 24 blend modes.
 
@@ -389,7 +408,7 @@ Overlays a panel onto the image — an image, a solid colour, or a genuine frost
 | **Border Radius Unit** | Pixels, or Percent of the panel's own size. |
 | **Border Radius** | CSS `border-radius`-style shorthand, space-separated, clockwise from the top-left corner: 1 value = all four corners, 2 values = "top-left/bottom-right top-right/bottom-left", 3 values = "top-left top-right/bottom-left bottom-right", 4 values = "top-left top-right bottom-right bottom-left". E.g. `"20"` (all corners) or `"20 20 0 0"` (rounded top, square bottom). Default `"0"` (sharp corners). |
 
-### 6.4 Create
+### 6.5 Create
 
 Generates a blank canvas in a solid colour — useful as a starting point before adding Text or other operations.
 
@@ -398,7 +417,7 @@ Generates a blank canvas in a solid colour — useful as a starting point before
 | **Background Color** | Default `#ffffff`, supports alpha. |
 | **Image Width / Image Height** | Pixels, default 1080 × 1080. |
 
-### 6.5 Crop
+### 6.6 Crop
 
 Extracts a rectangular region from the image.
 
@@ -407,7 +426,7 @@ Extracts a rectangular region from the image.
 | **Width / Height** | Pixels, default 500 × 500. Size of the crop region. |
 | **Position X / Position Y** | Pixels, default 0, 0. Top-left corner of the crop region. |
 
-### 6.6 Draw
+### 6.7 Draw
 
 Draws a rectangle, circle, or line directly onto the image, with independent fill and stroke.
 
@@ -419,15 +438,15 @@ Draws a rectangle, circle, or line directly onto the image, with independent fil
 | **Stroke Width** | Pixels, default 0 (no stroke). |
 | **Start Position X/Y, End Position X/Y** | Pixel coordinates defining the shape's bounds. |
 
-### 6.7 Flip
+### 6.8 Flip
 
 Mirrors the image vertically — top becomes bottom. No additional fields.
 
-### 6.8 Flop
+### 6.9 Flop
 
 Mirrors the image horizontally — left becomes right. No additional fields.
 
-### 6.9 Apply Gamma
+### 6.10 Apply Gamma
 
 Gamma-corrects the image's brightness curve.
 
@@ -435,15 +454,15 @@ Gamma-corrects the image's brightness curve.
 |---|---|
 | **Gamma Value** | 1.0 to 3.0, default 2.2. Lower values darken the image, higher values brighten it — this adjusts the tonal curve rather than a flat brightness shift, so midtones are affected more than the extremes. |
 
-### 6.10 Convert to Grayscale
+### 6.11 Convert to Grayscale
 
 Converts the image to black and white. No additional fields.
 
-### 6.11 Normalize
+### 6.12 Normalize
 
 Stretches contrast to use the full available dynamic range — a flat, low-contrast image gets its darkest pixel pushed toward black and its brightest pixel pushed toward white, with everything else scaled proportionally in between. No additional fields.
 
-### 6.12 Resize
+### 6.13 Resize
 
 Resizes the image using one of five fit strategies.
 
@@ -453,7 +472,7 @@ Resizes the image using one of five fit strategies.
 | **Fit** | Cover (scales to fill, crops excess) / Contain (scales to fit, adds padding) / Fill (stretches, ignores aspect ratio) / Inside (scales down only if larger) / Outside (scales up only if smaller). Default Cover. |
 | **Background Color (for Contain)** | Default `#000000`, supports alpha. Fill colour for the padding added by Contain. |
 
-### 6.13 Rotate
+### 6.14 Rotate
 
 Rotates the image by any angle.
 
@@ -462,11 +481,11 @@ Rotates the image by any angle.
 | **Degrees** | -360 to 360, default 90. Positive rotates clockwise. |
 | **Background Color** | Default transparent. Fill for the area revealed when rotating by anything other than a multiple of 90°. |
 
-### 6.14 Apply Sepia Tone
+### 6.15 Apply Sepia Tone
 
 Applies a warm, vintage sepia tone across the image. No additional fields.
 
-### 6.15 Sharpen
+### 6.16 Sharpen
 
 Applies an unsharp mask — the standard sharpening technique used by most image editors.
 
@@ -476,7 +495,7 @@ Applies an unsharp mask — the standard sharpening technique used by most image
 | **Sharpen Flat** | 0–10000, default 1. Threshold for "flat" (low-detail) areas — lower values cause more of the image to be sharpened, including subtle textures. |
 | **Sharpen Jagged** | 0–10000, default 2. Threshold for "jagged" (high-detail) edges — higher values sharpen strong edges more aggressively. |
 
-### 6.16 Shear
+### 6.17 Shear
 
 Shears the image along the X and/or Y axis via an affine transform.
 
@@ -485,7 +504,7 @@ Shears the image along the X and/or Y axis via an affine transform.
 | **Shear X (degrees)** | Default 0. Horizontal shear angle. |
 | **Shear Y (degrees)** | Default 10. Vertical shear angle. |
 
-### 6.17 Tint
+### 6.18 Tint
 
 Applies a colour hue overlay across the image.
 
@@ -493,7 +512,7 @@ Applies a colour hue overlay across the image.
 |---|---|
 | **Tint Color** | Default `#ff6b35`. The colour used to tint the image — this shifts the image's hue toward the chosen colour rather than simply overlaying it at reduced opacity. |
 
-### 6.18 Transparent
+### 6.19 Transparent
 
 Replaces a specific colour with alpha transparency (PNG output).
 
@@ -502,7 +521,7 @@ Replaces a specific colour with alpha transparency (PNG output).
 | **Background Color to Remove** | Default `#ffffff`. The colour to replace with transparency. |
 | **Tolerance** | 0–255, default 30. How close a pixel's colour needs to be to the target colour to be made transparent. |
 
-### 6.19 Trim
+### 6.20 Trim
 
 Crops the image to the bounding box of its non-transparent pixels, removing empty transparent space around the edges. Useful for cutouts, logos, and stickers exported with extra padding. Images without an alpha channel, and fully transparent images, are returned unchanged. Works in Multi-Step mode — pair it with **Transparent** to first remove a solid background, then trim to the subject.
 
@@ -512,7 +531,7 @@ Crops the image to the bounding box of its non-transparent pixels, removing empt
 | **Alpha Threshold** | 0–254, default 0. Pixels with alpha at or below this value count as transparent. `0` trims only fully transparent pixels; raise it to also ignore faint halos or near-invisible anti-aliasing noise. |
 | **Padding** | Pixels, default 0. Transparent margin to keep around the visible content on the trimmed sides. Clamped to the original image bounds. |
 
-### 6.20 Add Watermark
+### 6.21 Add Watermark
 
 Overlays a second image (e.g. a logo) onto the source image, with opacity and positioning control.
 
@@ -523,7 +542,7 @@ Overlays a second image (e.g. a logo) onto the source image, with opacity and po
 | **Opacity (%)** | 0 (invisible) to 100 (fully opaque), default 50. |
 | **Max Size (% of Canvas)** | 1–100, default 20. The watermark is scaled so its longest side is this percentage of the canvas — keeps a logo proportionally sized regardless of the source image's dimensions. |
 
-### 6.21 Get Information
+### 6.22 Get Information
 
 Returns image metadata — width, height, format, DPI, and channel count. No additional fields.
 
