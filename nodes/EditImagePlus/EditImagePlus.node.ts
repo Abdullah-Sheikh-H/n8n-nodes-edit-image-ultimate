@@ -2315,18 +2315,18 @@ const nodeOperationOptions: INodeProperties[] = [
 		name: 'width',
 		type: 'number',
 		default: 1080,
-		typeOptions: { minValue: 1 },
+		typeOptions: { minValue: 0 },
 		displayOptions: { show: { operation: ['resize'] } },
-		description: 'Target width in pixels',
+		description: 'Target width in pixels. 0 = auto: calculated from Height, keeping the aspect ratio.',
 	},
 	{
 		displayName: 'Height',
 		name: 'height',
 		type: 'number',
 		default: 1080,
-		typeOptions: { minValue: 1 },
+		typeOptions: { minValue: 0 },
 		displayOptions: { show: { operation: ['resize'] } },
-		description: 'Target height in pixels',
+		description: 'Target height in pixels. 0 = auto: calculated from Width, keeping the aspect ratio.',
 	},
 	{
 		displayName: 'Fit',
@@ -2341,7 +2341,7 @@ const nodeOperationOptions: INodeProperties[] = [
 		],
 		default: 'cover',
 		displayOptions: { show: { operation: ['resize'] } },
-		description: 'How to fit the image into the target dimensions',
+		description: 'How to fit the image into the target dimensions. Ignored when Width or Height is 0 (auto) — the aspect ratio is always kept then.',
 	},
 	{
 		displayName: 'Background Color (for Contain)',
@@ -3610,10 +3610,24 @@ async function applyOperation(
 		};
 		const fit = fitMap[ci(op.resizeOption, 'cover')] ?? 'cover';
 		const bg = op.resizeBackground ? hexToRgba(op.resizeBackground as string) : { r: 0, g: 0, b: 0, alpha: 1 };
-		return instance.resize({
-			width: (op.width as number) ?? 1080,
-			height: (op.height as number) ?? 1080,
-			fit,
+		// 0 or empty = auto: sharp derives the missing side from the aspect ratio
+		const dimension = (value: unknown): number | undefined => {
+			const n = Math.round(value === undefined ? 1080 : Number(value));
+			return Number.isFinite(n) && n > 0 ? n : undefined;
+		};
+		const width = dimension(op.width);
+		const height = dimension(op.height);
+		if (width === undefined && height === undefined) {
+			throw new Error('Resize needs at least one of Width or Height — both are 0 (auto)');
+		}
+		// Materialize first: sharp merges chained resize() calls, so in Multi-Step
+		// a later auto side would silently inherit the earlier step's value.
+		const { data, info } = await instance.raw().toBuffer({ resolveWithObject: true });
+		return sharp(data, { raw: { width: info.width, height: info.height, channels: info.channels } }).resize({
+			width,
+			height,
+			// With one side auto, only an aspect-preserving fit makes sense ('fill' would keep the original size on that side)
+			fit: width === undefined || height === undefined ? 'inside' : fit,
 			background: { r: bg.r, g: bg.g, b: bg.b, alpha: bg.alpha },
 			withoutEnlargement: false,
 		});

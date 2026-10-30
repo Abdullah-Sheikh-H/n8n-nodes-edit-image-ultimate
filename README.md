@@ -166,7 +166,7 @@ Point the `N8N_CUSTOM_EXTENSIONS` environment variable at the package, or place 
 | Gamma | Gamma correction (1.0–3.0) |
 | Grayscale | Convert to black and white |
 | Normalize | Stretch contrast to the full dynamic range |
-| Resize | Five fit modes: cover, contain, fill, inside, outside |
+| Resize | Five fit modes: cover, contain, fill, inside, outside — or set just one side and keep the aspect ratio |
 | Rotate | Rotate by any angle, with background fill for non-90° angles |
 | Sepia | Warm vintage tone |
 | Sharpen | Unsharp mask with sigma / flat / jagged controls |
@@ -468,7 +468,7 @@ Resizes the image using one of five fit strategies.
 
 | Field | Details |
 |---|---|
-| **Width / Height** | Pixels, default 1080 × 1080. Target dimensions. |
+| **Width / Height** | Pixels, default 1080 × 1080. Target dimensions. Set one of them to `0` (or leave it empty) to calculate it automatically from the other, keeping the aspect ratio — e.g. Width `800`, Height `0` makes any image 800px wide. Fit is ignored in that case. Both `0` is an error. |
 | **Fit** | Cover (scales to fill, crops excess) / Contain (scales to fit, adds padding) / Fill (stretches, ignores aspect ratio) / Inside (scales down only if larger) / Outside (scales up only if smaller). Default Cover. |
 | **Background Color (for Contain)** | Default `#000000`, supports alpha. Fill colour for the padding added by Contain. |
 
