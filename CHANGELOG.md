@@ -6,6 +6,7 @@ All notable changes to this project are documented here.
 
 ### Added
 - **Canvas Size** operation — Photoshop-style canvas resize. Set a new size or add/remove from the current one (**Mode**), in pixels or percent (**Unit**), with a 9-point **Anchor** that decides where the original image sits. Growing adds empty space, shrinking crops. **Background Color** defaults to fully transparent. Works in Multi-Step mode on the image as it is at that step
+- **Trim** operation: crops an image to the bounding box of its non-transparent pixels, removing empty transparent space around the edges. **Sides** picks which edges to trim (any combination of Top, Bottom, Left, Right — the rest stay untouched), **Alpha Threshold** (0–254) controls which pixels count as transparent, so faint halos can be ignored too, and **Padding** keeps an optional transparent margin around the content. Works in Multi-Step mode, and trims the image as it is at that step, not the original input
 
 ### Fixed
 - **Fully transparent colours (`#RRGGBB00`) were treated as fully opaque.** The hex parser used `parseInt(...) || 255` for the alpha byte, so an alpha of `00` (which parses to `0`, a falsy value) fell through to `255`. Any colour field set to a fully transparent value — Create background, Border color, Rotate background, and so on — rendered as a solid colour instead. Alpha `00` now correctly yields a fully transparent colour
@@ -76,4 +77,3 @@ Full rewrite of the Text operation's positioning, sizing, and styling system.
 - Character-width estimation now accounts for font weight (bold text is measurably wider per character)
 - Blank lines (double line breaks) no longer collapse to zero height
 - Justify no longer stretches the final line of a paragraph (matches standard typography)
-
