@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here.
 
-## [Unreleased]
+## [1.4.0]
 
 ### Added
 - **Canvas Size** operation — Photoshop-style canvas resize. Set a new size or add/remove from the current one (**Mode**), in pixels or percent (**Unit**), with a 9-point **Anchor** that decides where the original image sits. Growing adds empty space, shrinking crops. **Background Color** defaults to fully transparent. Works in Multi-Step mode on the image as it is at that step
